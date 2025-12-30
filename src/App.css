@@ -1,0 +1,305 @@
+/* =========================================
+   1. RESET I BAZA (Wspólne dla całej gry)
+   ========================================= */
+:root {
+  --bg-color: #0b1026;   
+  --ui-color: #1e2846;   
+  --accent-color: #00d2ff; 
+  --neon-purple: #9d4edd;
+  --neon-blue: #00f0ff;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  user-select: none; /* Blokada zaznaczania */
+  -webkit-user-select: none;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  background-color: var(--bg-color);
+  overflow: hidden; /* Blokada scrollowania */
+  font-family: sans-serif;
+  color: white;
+}
+
+/* ZMODYFIKOWANY #root - musi zajmować pełny ekran dla gry */
+#root {
+  width: 100%;
+  height: 100%;
+  /* Usunąłem sztywne paddingi, które psuły grę na telefonie.
+     Teraz wyśrodkowanie załatwiamy Flexboxem */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+/* =========================================
+   2. STYLE MENU (Twoje oryginalne style)
+   ========================================= */
+
+/* Kontener dla Menu (dodaj tę klasę do diva otaczającego menu w App.jsx, jeśli trzeba) */
+.menu-container {
+  width: 100%;
+  max-width: 1280px;
+  padding: 2rem;
+  text-align: center;
+  overflow-y: auto; /* Pozwól na przewijanie tylko w menu jeśli się nie mieści */
+  max-height: 100vh;
+}
+
+/* Efekt neonowego logo */
+.neon-text {
+  text-shadow: 0 0 8px rgba(0, 240, 255, 0.8),
+               0 0 16px rgba(0, 240, 255, 0.5),
+               0 0 32px rgba(157, 78, 221, 0.5);
+  color: #fff;
+}
+
+/* Neonowy drop-shadow do SVG lub grafiki */
+.drop-shadow-neon {
+  filter: drop-shadow(0 0 8px #00ffff) drop-shadow(0 0 16px #9d4edd);
+}
+
+/* Animowany pasek "neon snake" pod tytułem */
+@keyframes snakeMove {
+  0% { transform: translateX(-60px); }
+  50% { transform: translateX(60px); }
+  100% { transform: translateX(-60px); }
+}
+
+.snake-preview {
+  width: 100px;
+  height: 10px;
+  border-radius: 9999px;
+  background: linear-gradient(90deg, #00ffff, #ff00ff);
+  box-shadow: 0 0 15px #00ffff, 0 0 25px #ff00ff;
+  animation: snakeMove 3s linear infinite;
+  margin: 0 auto 20px auto; /* Wyśrodkowanie paska */
+}
+
+/* Animacja fade-in menu */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-fadeIn {
+  animation: fadeIn 0.8s ease-out;
+}
+
+/* Przyciski w Menu */
+.btn-primary {
+  padding: 0.75rem 1.5rem;
+  border-radius: 0.75rem;
+  font-weight: 700;
+  background: linear-gradient(90deg, var(--neon-blue) 0%, var(--neon-purple) 100%);
+  color: white;
+  transition: all 0.3s ease;
+  border: none;
+  cursor: pointer;
+}
+.btn-primary:hover {
+  box-shadow: 0 0 20px rgba(0, 240, 255, 0.4);
+  transform: translateY(-1px);
+}
+.btn-primary:active {
+  transform: scale(0.96);
+}
+
+.btn-secondary {
+  padding: 0.5rem 1rem;
+  border-radius: 0.75rem;
+  background: rgba(255,255,255,0.04);
+  color: #e0e0e0;
+  border: 1px solid rgba(255,255,255,0.1);
+  font-weight: 600;
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+.btn-secondary:hover {
+  background: rgba(255,255,255,0.1);
+  box-shadow: 0 0 10px rgba(0,240,255,0.15);
+}
+.btn-secondary:active {
+  transform: scale(0.96);
+}
+
+/* Sekcja trybów */
+.mode-button {
+  padding: 0.75rem 1.5rem;
+  border-radius: 1rem;
+  border: 2px solid transparent;
+  background: transparent;
+  color: rgba(220,220,230,0.9);
+  font-weight: 600;
+  transition: all 0.25s ease;
+  cursor: pointer;
+}
+.mode-button.selected {
+  background: linear-gradient(90deg, rgba(0,240,255,0.2), rgba(157,78,221,0.15));
+  border-color: rgba(255,255,255,0.18);
+  color: #fff;
+  text-shadow: 0 0 10px rgba(0,240,255,0.4);
+}
+
+/* Karta Menu */
+.neon-menu {
+  background: rgba(26, 31, 58, 0.7);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 1rem;
+  box-shadow: inset 0 0 20px rgba(0,240,255,0.05),
+              0 8px 30px rgba(0,0,0,0.6);
+  padding: 2rem;
+  backdrop-filter: blur(10px);
+  margin: 10px; /* Margines żeby nie dotykało krawędzi na małych telefonach */
+}
+
+.footer {
+  margin-top: 2rem;
+  font-size: 0.75rem;
+  color: #666;
+  opacity: 0.6;
+}
+.footer span {
+  color: #00ffff;
+}
+
+/* =========================================
+   3. NOWE STYLE ROZGRYWKI (Game Layout)
+   ========================================= */
+
+/* Główny kontener gry - zajmuje cały ekran */
+.app-container {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh; /* Dynamiczna wysokość viewportu */
+  width: 100vw;
+  max-width: 600px; /* Limit szerokości na PC */
+  margin: 0 auto;
+}
+
+/* Sekcja 1: GÓRA (Wynik i Czas) */
+.header-section {
+  flex: 0 0 auto;
+  padding: 10px 15px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  z-index: 10;
+}
+
+.score-board, .timer-board {
+  background: var(--ui-color);
+  padding: 8px 15px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  text-align: center;
+  box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+  min-width: 70px;
+}
+
+.label {
+  font-size: 0.6rem;
+  opacity: 0.7;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.value {
+  font-size: 1.2rem;
+  font-weight: bold;
+}
+
+/* Sekcja 2: ŚRODEK (Plansza) */
+.board-section {
+  flex: 1; /* Kluczowe: rozpycha się w wolnej przestrzeni */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 5px;
+  position: relative;
+  min-height: 0;
+}
+
+.game-board {
+  aspect-ratio: 1 / 1; /* Kwadrat */
+  width: 100%;
+  height: 100%;
+  max-height: 100%; 
+  max-width: 100%;
+  
+  background-color: rgba(0, 0, 0, 0.3);
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  position: relative;
+  
+  /* Logika siatki (dostosuj do JS) */
+  display: grid;
+  grid-template-columns: repeat(20, 1fr); 
+  grid-template-rows: repeat(20, 1fr);
+}
+
+/* Sekcja 3: DÓŁ (D-pad) */
+.controls-section {
+  flex: 0 0 25%; /* D-pad zajmuje 25% wysokości ekranu */
+  min-height: 160px;
+  max-height: 280px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding-bottom: 15px;
+}
+
+.d-pad {
+  height: 90%;
+  aspect-ratio: 1 / 1;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.d-btn {
+  background: var(--ui-color);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 12px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-size: 1.5rem;
+  color: white;
+  cursor: pointer;
+  box-shadow: 0 4px 0 rgba(0,0,0,0.5);
+  transition: transform 0.1s, box-shadow 0.1s;
+  touch-action: manipulation;
+}
+
+.d-btn:active {
+  transform: translateY(4px);
+  box-shadow: 0 0 0 rgba(0,0,0,0.5);
+  background: var(--neon-blue);
+}
+
+.btn-up    { grid-column: 2; grid-row: 1; }
+.btn-left  { grid-column: 1; grid-row: 2; }
+.btn-right { grid-column: 3; grid-row: 2; }
+.btn-down  { grid-column: 2; grid-row: 3; }
+
+/* Media Queries dla małych ekranów (zachowane z oryginału) */
+@media (max-width: 640px) {
+  .btn-primary, .btn-secondary {
+    font-size: 0.9rem;
+    padding: 0.5rem 1rem;
+  }
+  h1 {
+    font-size: 1.8rem;
+  }
+  .snake-preview {
+    width: 80px;
+    height: 8px;
+  }
+}
