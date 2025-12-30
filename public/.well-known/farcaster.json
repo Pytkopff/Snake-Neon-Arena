@@ -2,11 +2,11 @@
   "frame": {
     "version": "1",
     "name": "Snake Neon Arena",
-    "iconUrl": "https://i.imgur.com/Kbd74kI.png",
+    "iconUrl": "https://snake-neon-arena.vercel.app/icon.png",
     "homeUrl": "https://snake-neon-arena.vercel.app",
-    "imageUrl": "https://i.imgur.com/Kbd74kI.png",
+    "imageUrl": "https://snake-neon-arena.vercel.app/splash.png",
     "buttonTitle": "Play Snake 🐍",
-    "splashImageUrl": "https://i.imgur.com/Kbd74kI.png",
+    "splashImageUrl": "https://snake-neon-arena.vercel.app/splash.png",
     "splashBackgroundColor": "#0A0E27",
     "webhookUrl": "https://snake-neon-arena.vercel.app/api/webhook"
   }
