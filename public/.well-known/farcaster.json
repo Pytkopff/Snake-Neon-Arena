@@ -5,9 +5,8 @@
     "iconUrl": "https://snake-neon-arena.vercel.app/icon.png",
     "homeUrl": "https://snake-neon-arena.vercel.app",
     "imageUrl": "https://snake-neon-arena.vercel.app/splash.png",
-    "buttonTitle": "Play Snake 🐍",
+    "buttonTitle": "Play Snake",
     "splashImageUrl": "https://snake-neon-arena.vercel.app/splash.png",
-    "splashBackgroundColor": "#0A0E27",
-    "webhookUrl": "https://snake-neon-arena.vercel.app/api/webhook"
+    "splashBackgroundColor": "#0A0E27"
   }
 }
