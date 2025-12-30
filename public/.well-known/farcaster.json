@@ -3,11 +3,11 @@
     "version": "1",
     "name": "Snake Neon Arena",
     "iconUrl": "https://i.imgur.com/Kbd74kI.png",
-    "homeUrl": "https://TWOJA-DOMENA-NA-VERCEL.app",
+    "homeUrl": "https://snake-neon-arena.vercel.app",
     "imageUrl": "https://i.imgur.com/Kbd74kI.png",
     "buttonTitle": "Play Snake 🐍",
     "splashImageUrl": "https://i.imgur.com/Kbd74kI.png",
     "splashBackgroundColor": "#0A0E27",
-    "webhookUrl": "https://TWOJA-DOMENA-NA-VERCEL.app/api/webhook"
+    "webhookUrl": "https://snake-neon-arena.vercel.app/api/webhook"
   }
 }
