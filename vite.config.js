@@ -5,21 +5,27 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   
-  // To dodajemy, żeby naprawić błędy "global is not defined" (Thirdweb fix)
+  // ZACHOWUJEMY: To naprawia błędy Thirdweb (ważne!)
   define: {
     'global': 'window',
     'process.env': {},
   },
 
-  // To Twoje ustawienia (zostawiamy bez zmian, żeby działało na telefonie)
+  // ZACHOWUJEMY: Twoje ustawienia serwera (dla telefonu)
   server: {
     host: '0.0.0.0', 
     port: 5173,
     strictPort: true,
   },
+
   resolve: {
     alias: {
       '@': '/src',
     },
   },
+
+  // DODAJEMY: To jest ta część dla Vercela, o którą nam chodziło
+  build: {
+    outDir: 'dist',
+  }
 })
