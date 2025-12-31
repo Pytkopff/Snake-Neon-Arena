@@ -1,16 +1,24 @@
 {
+  "routes": [
+    { "src": "/cover.png", "dest": "/cover.png" },
+    { "src": "/icon.png", "dest": "/icon.png" },
+    { "src": "/.well-known/farcaster.json", "dest": "/.well-known/farcaster.json" },
+    { "src": "/(.*)", "dest": "/index.html" }
+  ],
   "headers": [
     {
       "source": "/.well-known/farcaster.json",
       "headers": [
-        {
-          "key": "Content-Type",
-          "value": "application/json"
-        },
-        {
-          "key": "Access-Control-Allow-Origin",
-          "value": "*"
-        }
+        { "key": "Content-Type", "value": "application/json" },
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Cache-Control", "value": "public, max-age=0, must-revalidate" }
+      ]
+    },
+    {
+      "source": "/cover.png",
+      "headers": [
+        { "key": "Content-Type", "value": "image/png" },
+        { "key": "Access-Control-Allow-Origin", "value": "*" }
       ]
     }
   ]
