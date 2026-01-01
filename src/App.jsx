@@ -47,7 +47,7 @@ function App() {
 
   // Game State
   const [isPlaying, setIsPlaying] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
+  const [isPaused, setIsPaused] = useState(true);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [notifiedMissions, setNotifiedMissions] = useState(() => {
     try {
@@ -71,6 +71,7 @@ function App() {
 
           // Zabezpieczenie: Resetujemy stan gry przy zmianie portfela
           setIsPlaying(false);
+          setIsPaused(true);
           setUnlockedSkins(['default']);
           setPlayerStats({
             totalApples: 0, totalGames: 0, bestScore: 0,
