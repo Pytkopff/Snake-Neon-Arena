@@ -1,12 +1,13 @@
 // src/App.jsx
 
+import DailyCheckIn from './components/DailyCheckIn';
 import { useEffect, useState, useRef } from 'react';
 import { Howl } from 'howler';
 import sdk from '@farcaster/frame-sdk';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount } from 'wagmi';
-// Usunięto zduplikowany import sdk
+
 import { useSnakeGame } from './hooks/useSnakeGame';
 import { GRID_SIZE, SOUNDS, SKINS, MISSIONS } from './utils/constants';
 import {
@@ -16,17 +17,17 @@ import {
 
 import GameBoard from './components/GameBoard';
 import HUD from './components/HUD';
+import ActiveEffects from './components/ActiveEffects'; // 🔥 NOWY IMPORT
 import VirtualDPad from './components/VirtualDPad';
 import GameOver from './components/GameOver';
 import Tutorial from './components/Tutorial';
-import ParticleSystem from './components/ParticleSystem';
+
 import Leaderboard from './components/Leaderboard';
 import SkinMissionsPanel from './components/SkinMissionsPanel';
 import Particles from './components/Particles';
 
 function App() {
   const [farcasterUser, setFarcasterUser] = useState(null);
-  // Dodano stan ładowania SDK
   const [isSDKLoaded, setIsSDKLoaded] = useState(false);
   
   const { address, isConnected } = useAccount();
@@ -37,7 +38,7 @@ function App() {
   const [showLeaderboard, setShowLeaderboard] = useState(false);
   const [showSkinSelector, setShowSkinSelector] = useState(false);
   const [unlockNotification, setUnlockNotification] = useState(null);
-
+  const [showDailyCheckIn, setShowDailyCheckIn] = useState(false);
   // Game Data
   const [gameMode, setGameMode] = useState('classic');
   const [bestScore, setBestScore] = useState(0);
@@ -64,12 +65,10 @@ function App() {
       if (address) {
         const lastAddress = localStorage.getItem('snake_last_wallet');
         if (lastAddress && lastAddress !== address) {
-          // New wallet detected, clear local specific data
           ['snake_unlocked_skins', 'snake_total_apples', 'snake_total_games',
            'snake_best_score', 'snake_best_score_walls', 'snake_best_score_chill'
           ].forEach(k => localStorage.removeItem(k));
 
-          // Zabezpieczenie: Resetujemy stan gry przy zmianie portfela
           setIsPlaying(false);
           setIsPaused(true);
           setUnlockedSkins(['default']);
@@ -98,6 +97,7 @@ function App() {
   useEffect(() => {
     soundsRef.current['EAT'] = new Howl({ src: [SOUNDS.EAT], volume: 0.5 });
     soundsRef.current['POWERUP'] = new Howl({ src: [SOUNDS.POWERUP], volume: 0.7 });
+    soundsRef.current['UNLOCK'] = new Howl({ src: [SOUNDS.UNLOCK], volume: 0.6 }); 
     
     musicRef.current = new Howl({ src: [SOUNDS.CHILL_MUSIC], loop: true, volume: 0.3, html5: true });
     return () => { if (musicRef.current) musicRef.current.unload(); };
@@ -116,18 +116,16 @@ function App() {
     }
   }, [isPlaying, gameMode, soundEnabled, isPaused]);
 
-  // --- Farcaster Context & Loading Logic ---
+  // --- Farcaster Context ---
   useEffect(() => {
     const load = async () => {
       try {
-        // Czekamy na gotowość SDK
         await sdk.actions.ready();
         const context = await sdk.context;
         setFarcasterUser(context?.user || { username: 'PlayerOne', pfpUrl: 'https://i.imgur.com/Kbd74kI.png' });
       } catch (e) { 
         setFarcasterUser({ username: 'Player', pfpUrl: 'https://via.placeholder.com/40' }); 
       } finally {
-        // Zawsze odblokowujemy UI po próbie ładowania
         setIsSDKLoaded(true);
       }
     };
@@ -140,7 +138,8 @@ function App() {
   const {
     snake, food, score, applesCollected, gameOver, activePowerUps, gamePowerUpItem,
     combo, maxCombo, timeLeft, currentSpeed,
-    startGame, resetGame, changeDirection
+    startGame, resetGame, changeDirection,
+    snakeDirection 
   } = useSnakeGame(isPaused);
 
   const prevApplesRef = useRef(applesCollected);
@@ -149,7 +148,6 @@ function App() {
 
   // FX & Sound Triggers
   useEffect(() => {
-    // 🛡️ PANCERNA BLOKADA DŹWIĘKÓW 🛡️
     if (!isPlaying) return;
     
     if (applesCollected > 0 && applesCollected > prevApplesRef.current) {
@@ -170,6 +168,26 @@ function App() {
     prevFoodRef.current = food;
     prevPowerUpsLengthRef.current = activePowerUps.length;
   }, [applesCollected, food, activePowerUps, soundEnabled, isPlaying]);
+
+  // --- AUTO-PAUSE ---
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden && isPlaying && !isPaused && !gameOver) {
+        setIsPaused(true);
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    const handleBlur = () => {
+       if (isPlaying && !isPaused && !gameOver) {
+         setIsPaused(true);
+       }
+    };
+    window.addEventListener("blur", handleBlur);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("blur", handleBlur);
+    };
+  }, [isPlaying, isPaused, gameOver]);
 
   // Game Over Handler
   useEffect(() => {
@@ -240,20 +258,16 @@ function App() {
     else changeDirection({x: 0, y: dy > 0 ? -1 : 1});
   };
 
-  // --- Mission System (BULLETPROOF LOCALSTORAGE FIX) ---
+  // --- Mission System ---
   useEffect(() => {
     if (!isPlaying) return;
     const currentTotalApples = (playerStats.totalApples || 0) + applesCollected;
     
     MISSIONS.forEach(mission => {
-      // 🔒 KROK 1
       const storedNotified = localStorage.getItem('snake_notified_missions');
       const alreadyNotified = storedNotified ? JSON.parse(storedNotified) : [];
-      
       if (alreadyNotified.includes(mission.id)) return;
-
       if (mission.rewardType === 'skin' && unlockedSkins.includes(mission.rewardId)) return;
-
       if (mission.type === 'score') {
         let previousBest = 0;
         if (mission.mode === 'classic') previousBest = playerStats.bestScoreClassic || 0;
@@ -270,12 +284,9 @@ function App() {
       }
       if (mission.type === 'games' && (playerStats.totalGames + 1) >= mission.target) isCompleted = true;
 
-      // --- Jeśli misja wykonana, robimy bezpieczny zapis ---
       if (isCompleted) {
-        // 🔒 KROK 2: Double-Check
         const doubleCheck = localStorage.getItem('snake_notified_missions');
         const doubleCheckArray = doubleCheck ? JSON.parse(doubleCheck) : [];
-        
         if (doubleCheckArray.includes(mission.id)) return;
         
         let rewardText = mission.title;
@@ -286,32 +297,23 @@ function App() {
           rewardText = `Badge: ${mission.title}`;
         }
         
-        // ✅ ATOMIC WRITE
         const updatedNotified = [...doubleCheckArray, mission.id];
         localStorage.setItem('snake_notified_missions', JSON.stringify(updatedNotified));
         
         setUnlockNotification([rewardText]);
         if (soundEnabled) soundsRef.current['UNLOCK']?.play();
-        
         setNotifiedMissions(updatedNotified);
       }
     });
   }, [score, applesCollected, isPlaying, playerStats, unlockedSkins, gameMode, soundEnabled]);
 
-  // Responsive Grid (Naprawa Mobile Layout)
+  // Responsive Grid
   const getCellSize = () => {
     const w = window.innerWidth; 
     const h = window.innerHeight; 
     const isDesktop = w > 1024;
-    
-    // Mobile: szerokość - padding, max 420px
-    // Desktop: max 500px
     const maxW = Math.min(w - 32, isDesktop ? 500 : 420);
-    
-    // Mobile: 45% wysokości (pozostaw miejsce na header + d-pad)
-    // Desktop: max 600px
     const maxH = isDesktop ? 600 : (h * 0.45);
-    
     return Math.min(Math.floor(maxW / GRID_SIZE), Math.floor(maxH / GRID_SIZE));
   };
   
@@ -325,7 +327,6 @@ function App() {
 
   const activeSkinObj = SKINS.find(s => s.id === currentSkinId) || SKINS[0];
 
-  // EKRAN ŁADOWANIA - POKAZUJEMY GO DOPÓKI SDK NIE JEST READY
   if (!isSDKLoaded) {
     return (
       <div className="h-[100dvh] w-full flex items-center justify-center bg-[#0A0E27] text-white">
@@ -339,8 +340,7 @@ function App() {
 
   return (
     <div className="h-[100dvh] w-full flex items-center justify-center bg-[#0A0E27] text-white overflow-hidden touch-none relative">
-      <ParticleSystem particles={[]} gridSize={GRID_SIZE} cellSize={cellSize} />
-
+      
       {/* DESKTOP LEFT PANEL */}
       <div className="hidden lg:flex flex-col justify-center gap-6 w-72 h-[80vh] p-6 glass rounded-l-2xl border-r-0 border-white/10 z-10 transition-all hover:translate-x-1">
         <div className="text-neon-blue font-bold tracking-widest text-sm mb-2">YOUR CAREER</div>
@@ -374,17 +374,38 @@ function App() {
           )}
         </AnimatePresence>
 
-        {/* MAIN MENU */}
+        {/* MAIN MENU (Wyświetlany tylko gdy gra NIE jest aktywna) */}
         {!isPlaying && !gameOver && (
           <div className="flex flex-col h-full w-full px-4 py-6 overflow-y-auto animate-fadeIn scrollbar-hide">
+            {/* ... Cała zawartość menu bez zmian ... */}
             <h1 className="text-3xl sm:text-4xl font-bold neon-text mb-4 text-center shrink-0">SNAKE NEON ARENA</h1>
             
-            {/* --- POWITANIE GRACZA (ZMIANA) --- */}
             <div className="text-center text-neon-blue font-bold tracking-widest text-sm mb-4 -mt-2 animate-pulse">
                HELLO, {farcasterUser?.username ? farcasterUser.username.toUpperCase() : 'PLAYER'}! 👾
             </div>
 
-            <div className="mb-4 flex justify-center shrink-0"><ConnectButton showBalance={false} /></div>
+            <div className="mb-4 flex justify-center shrink-0">
+              <ConnectButton.Custom>
+                {({ account, chain, openAccountModal, openChainModal, openConnectModal, authenticationStatus, mounted }) => {
+                  const ready = mounted && authenticationStatus !== 'loading';
+                  const connected = ready && account && chain && (!authenticationStatus || authenticationStatus === 'authenticated');
+                  return (
+                    <div {...(!ready && { 'aria-hidden': true, 'style': { opacity: 0, pointerEvents: 'none', userSelect: 'none' } })}>
+                      {(() => {
+                        if (!connected) return <button onClick={openConnectModal} className="px-6 py-2 rounded-xl bg-neon-blue/10 border border-neon-blue text-neon-blue font-bold tracking-wider shadow-[0_0_15px_rgba(0,240,255,0.3)] hover:bg-neon-blue/20 hover:scale-105 transition-all animate-pulse">🔌 CONNECT WALLET</button>;
+                        if (chain.unsupported) return <button onClick={openChainModal} className="px-4 py-2 rounded-xl bg-red-500/20 border border-red-500 text-red-500 font-bold">⚠️ WRONG NETWORK</button>;
+                        return (
+                          <div className="flex gap-2">
+                            <button onClick={openChainModal} className="px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-white font-bold flex items-center gap-2 hover:bg-white/10 transition-all">{chain.name}</button>
+                            <button onClick={openAccountModal} className="px-4 py-2 rounded-xl bg-gradient-to-r from-neon-blue/20 to-purple-500/20 border border-neon-blue/50 text-white font-bold shadow-[0_0_10px_rgba(0,240,255,0.2)] hover:scale-105 transition-all">👤 {account.displayName}</button>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  );
+                }}
+              </ConnectButton.Custom>
+            </div>
 
             {showSkinSelector ? (
               <SkinMissionsPanel
@@ -419,58 +440,70 @@ function App() {
                 </div>
 
                 <div className="mt-auto w-full pb-4 space-y-2">
-                  <button onClick={handleStart} className="btn-primary w-full py-3 text-lg shadow-lg">🎮 START GAME</button>
-                  <button onClick={() => setShowSkinSelector(true)} className="btn-secondary w-full py-2 border-neon-blue/30 text-neon-blue">🎨 SKINS & MISSIONS</button>
-                  <div className="flex gap-2">
-                    <button onClick={() => setShowTutorial(true)} className="btn-secondary flex-1 py-2 text-sm">❓ Help</button>
-                    <button onClick={() => setShowLeaderboard(true)} className="btn-secondary flex-1 py-2 text-sm">🏆 Ranks</button>
+                    <button onClick={handleStart} className="btn-primary w-full py-3 text-lg shadow-lg">🎮 START GAME</button>
+                    <button onClick={() => setShowDailyCheckIn(true)} className="w-full py-2 rounded-lg border border-neon-blue/30 bg-neon-blue/10 text-neon-blue font-bold tracking-widest hover:bg-neon-blue/20 transition-all flex items-center justify-center gap-2 shadow-[0_0_10px_rgba(0,240,255,0.2)] animate-pulse">
+                        <span>🎁</span> DAILY REWARDS
+                    </button>
+                    <button onClick={() => setShowSkinSelector(true)} className="btn-secondary w-full py-2 border-neon-blue/30 text-neon-blue">🎨 SKINS & MISSIONS</button>
+                    <div className="flex gap-2">
+                      <button onClick={() => setShowTutorial(true)} className="btn-secondary flex-1 py-2 text-sm">❓ Help</button>
+                      <button onClick={() => setShowLeaderboard(true)} className="btn-secondary flex-1 py-2 text-sm">🏆 Ranks</button>
+                    </div>
                   </div>
-                </div>
               </>
             )}
           </div>
         )}
 
-        {/* GAME ACTIVE */}
+        {/* 🔥🔥🔥 GAME ACTIVE - NOWA STRUKTURA FLEX-COL 🔥🔥🔥 */}
         {(isPlaying || gameOver) && (
-          <div className="h-[100dvh] w-full flex flex-col items-center relative overflow-hidden bg-[#0A0E27]" 
+          <div className="h-[100dvh] w-full flex flex-col items-center bg-[#0A0E27]" 
                onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
-            <div className="shrink-0 w-full z-20 pt-2 px-2">
-              <HUD score={score} applesCollected={applesCollected} bestScore={bestScore} combo={combo} 
-                   activePowerUps={activePowerUps} isPaused={isPaused} onPause={togglePause} 
-                   soundEnabled={soundEnabled} onToggleSound={() => setSoundEnabled(!soundEnabled)} 
-                   gameMode={gameMode} timeLeft={timeLeft} />
-            </div>
+            
+            {/* 1. HUD GÓRNY (Flex Item) */}
+            <HUD 
+              score={score} applesCollected={applesCollected} 
+              isPaused={isPaused} onPause={togglePause} 
+              soundEnabled={soundEnabled} onToggleSound={() => setSoundEnabled(!soundEnabled)} 
+              gameMode={gameMode} timeLeft={timeLeft} 
+            />
 
-            <div className="flex-1 w-full flex items-center justify-center min-h-0 relative z-10 my-1">
-              <div className="relative aspect-square max-h-full max-w-full">
+            {/* 2. COMBO / POWERUPS (Flex Item) */}
+            <ActiveEffects combo={combo} activePowerUps={activePowerUps} />
+
+            {/* 3. GAME STAGE (Flex: 1 - zajmuje resztę) */}
+            <div className="flex-1 w-full flex items-center justify-center relative overflow-hidden">
+                {/* Tło / Cząsteczki */}
+                <div className="absolute inset-0 z-0">
                   <Particles ref={particlesRef} />
-                  <GameBoard 
-                    snake={snake} food={food} powerUp={gamePowerUpItem} gridSize={GRID_SIZE} cellSize={cellSize}
-                    userPfp={farcasterUser?.pfpUrl} activePowerUps={activePowerUps} speed={currentSpeed} score={score}
-                    isWalletConnected={isConnected} activeSkinColor={activeSkinObj.color} 
-                  />
-                  {isPaused && !gameOver && (
-                    <div className="fixed inset-0 lg:absolute bg-black/40 backdrop-blur-md flex items-center justify-center z-50 animate-fadeIn">
-                      <div className="text-center p-6 glass rounded-xl border border-white/20 shadow-xl">
-                        <h2 className="text-3xl font-bold mb-6 text-neon-blue">PAUSED</h2>
-                        <button onClick={togglePause} className="btn-primary w-full py-3 mb-3">RESUME</button>
-                        <button onClick={() => { setIsPlaying(false); setIsPaused(false); resetGame(); }} className="btn-secondary w-full py-3">QUIT</button>
-                      </div>
-                    </div>
-                  )}
-              </div>
+                </div>
+
+                {/* PLANSZA GRY */}
+                <div className="relative z-10">
+                   <GameBoard 
+                     snake={snake} food={food} powerUp={gamePowerUpItem} gridSize={GRID_SIZE} cellSize={cellSize}
+                     userPfp={farcasterUser?.pfpUrl} activePowerUps={activePowerUps} speed={currentSpeed} score={score}
+                     activeSkinColor={activeSkinObj.color} 
+                   />
+                </div>
+
+                {/* 🔥 MODAL PAUZY - TYLKO TUTAJ (Overlay na Stage) 🔥 */}
+                {isPaused && !gameOver && (
+                  <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn">
+                     <div className="text-center p-6 glass rounded-xl border border-white/20 shadow-xl min-w-[200px]">
+                       <h2 className="text-3xl font-bold mb-6 text-neon-blue tracking-widest">PAUSED</h2>
+                       <button onClick={togglePause} className="btn-primary w-full py-3 mb-3">RESUME</button>
+                       <button onClick={() => { setIsPlaying(false); setIsPaused(false); resetGame(); }} className="btn-secondary w-full py-3">QUIT</button>
+                     </div>
+                  </div>
+                )}
             </div>
 
-           {/* Bezpieczny obszar iOS */}
-           <div 
-             className="shrink-0 w-full flex justify-center lg:hidden z-20 bg-gradient-to-t from-[#0A0E27] to-transparent"
-             style={{
-               paddingBottom: 'max(3.5rem, calc(env(safe-area-inset-bottom) + 2rem))'
-             }}
-           >
-             <VirtualDPad isVisible={!gameOver} onDirectionChange={changeDirection} size={Math.min(160, window.innerWidth * 0.45)} />
-           </div>
+            {/* 4. D-PAD (Flex Item - Na dole) */}
+            <div className="shrink-0 w-full flex justify-center pb-[max(20px,env(safe-area-inset-bottom))] lg:hidden z-20">
+               <VirtualDPad isVisible={!gameOver} onDirectionChange={changeDirection} size={Math.min(160, window.innerWidth * 0.45)} currentDirection={snakeDirection} />
+            </div>
+
           </div>
         )}
 
@@ -485,6 +518,18 @@ function App() {
 
         {showTutorial && <Tutorial onClose={() => setShowTutorial(false)} />}
         {showLeaderboard && <Leaderboard onClose={() => setShowLeaderboard(false)} defaultTab={gameMode} />}
+        {showDailyCheckIn && (
+          <DailyCheckIn
+            walletAddress={address} 
+            onClose={() => setShowDailyCheckIn(false)}
+            onRewardClaimed={(amount) => {
+              if (soundEnabled) soundsRef.current['UNLOCK']?.play();
+              setUnlockNotification([`Daily Reward: +${amount} 🍎`]);
+              setPlayerStats(prev => ({ ...prev, totalApples: (prev.totalApples || 0) + amount }));
+            }}
+          />
+        )}
+        
       </div>
       <div className="hidden lg:block w-72 h-[80vh] p-6 glass rounded-r-2xl border-l-0 border-white/10"></div>
     </div>

@@ -1,60 +1,89 @@
 // src/components/Leaderboard.jsx
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { supabase } from '../utils/supabaseClient'; // Importujemy klienta bazy
+import { supabase } from '../utils/supabaseClient';
 
 const Leaderboard = ({ onClose, defaultTab = 'classic' }) => {
   const [tab, setTab] = useState(defaultTab);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // Pobieranie danych z Supabase (Live)
   useEffect(() => {
     const fetchLeaderboard = async () => {
       setLoading(true);
       try {
-        // ZMIANA: Pobieramy z nowego widoku (tylko najlepsze wyniki)
-        const { data, error } = await supabase
-          .from('view_best_scores') // <-- Tu jest zmiana
-          .select(`
-            score,
-            mode,
-            played_at,
-            username,       
-            wallet_address
-          `)
-          .eq('mode', tab)
-          .order('score', { ascending: false })
-          .limit(50);
+        let formattedData = [];
 
-        if (error) throw error;
+        // --- SCENARIUSZ A: ZAKŁADKA JABŁKA (NOWA) ---
+        if (tab === 'apples') {
+          // Pobieramy z tabeli player_stats, którą JUŻ MASZ w bazie
+          // Łączymy się z profiles, żeby dostać nazwę gracza
+          const { data, error } = await supabase
+            .from('player_stats')
+            .select(`
+              total_apples_eaten,
+              profiles (
+                username,
+                wallet_address
+              )
+            `)
+            .order('total_apples_eaten', { ascending: false })
+            .limit(50);
 
-        const formattedData = data.map(entry => ({
-          // Teraz username jest bezpośrednio w głównym obiekcie, nie w 'profiles'
-          name: entry.username || `Player ${entry.wallet_address?.slice(0,4)}...`,
-          score: entry.score,
-          date: entry.played_at,
-          isMe: false 
-        }));
+          if (error) throw error;
+
+          formattedData = data.map(entry => {
+            const profile = entry.profiles || {};
+            // Fallback: jeśli nie ma username, pokazujemy kawałek portfela
+            const displayName = profile.username || (profile.wallet_address ? `Player ${profile.wallet_address.slice(0, 4)}...` : 'Unknown');
+            
+            return {
+              name: displayName,
+              score: entry.total_apples_eaten, // Tutaj wynikiem jest liczba jabłek
+              date: null, // Przy sumie jabłek data "zagrania" nie ma sensu
+              isMe: false
+            };
+          });
+
+        } 
+        // --- SCENARIUSZ B: POZOSTAŁE ZAKŁADKI (WYNIKI) ---
+        else {
+          // Tu korzystamy z Twojego obecnego rozwiązania (zakładam view_best_scores, 
+          // ale jeśli używasz game_scores bezpośrednio, po prostu zmień nazwę tabeli poniżej)
+          const { data, error } = await supabase
+            .from('view_best_scores') 
+            .select('*')
+            .eq('mode', tab)
+            .order('score', { ascending: false })
+            .limit(50);
+
+          if (error) throw error;
+
+          formattedData = data.map(entry => ({
+            name: entry.username || `Player ${entry.wallet_address?.slice(0,4)}...`,
+            score: entry.score,
+            date: entry.played_at,
+            isMe: false 
+          }));
+        }
 
         setItems(formattedData);
       } catch (err) {
         console.error('Error fetching leaderboard:', err);
-        setItems([]); // W razie błędu pusta lista
+        setItems([]);
       } finally {
         setLoading(false);
       }
     };
 
     fetchLeaderboard();
-  }, [tab]); // Odśwież jak zmienisz zakładkę
+  }, [tab]);
 
-  // Tab button component
   const TabButton = ({ mode, label, emoji }) => (
     <button
       onClick={() => setTab(mode)}
       className={`
-        px-4 py-2 rounded-lg font-semibold transition-all flex-1 sm:flex-none
+        px-3 py-2 rounded-lg font-semibold transition-all flex-1 sm:flex-none text-xs sm:text-sm whitespace-nowrap
         ${tab === mode 
           ? 'bg-gradient-to-r from-neon-blue to-neon-purple text-black shadow-[0_0_15px_rgba(0,240,255,0.5)]' 
           : 'glass hover:bg-white/10 text-gray-400'
@@ -102,21 +131,23 @@ const Leaderboard = ({ onClose, defaultTab = 'classic' }) => {
           </button>
         </div>
 
-        {/* Tab Buttons */}
-        <div className="flex gap-2 mb-6 shrink-0">
+        {/* Tab Buttons - TERAZ Z 4 OPCJAMI */}
+        <div className="flex gap-2 mb-6 shrink-0 overflow-x-auto pb-2 custom-scrollbar">
           <TabButton mode="classic" label="Classic" emoji="🏆" />
           <TabButton mode="walls" label="Time Blitz" emoji="⚡" />
           <TabButton mode="chill" label="Zen" emoji="🧘" />
+          {/* NOWA ZAKŁADKA */}
+          <TabButton mode="apples" label="Total fruit" emoji="🍎" />
         </div>
 
         {/* Column Headers */}
         <div className="grid grid-cols-12 gap-2 text-xs text-gray-500 uppercase font-bold tracking-wider mb-2 px-3 shrink-0">
            <div className="col-span-2 text-center">Rank</div>
            <div className="col-span-6">Player</div>
-           <div className="col-span-4 text-right">Score</div>
+           <div className="col-span-4 text-right">{tab === 'apples' ? 'fruit' : 'Score'}</div>
         </div>
 
-        {/* Leaderboard Entries (Scrollable) */}
+        {/* Leaderboard Entries */}
         <div className="flex-1 overflow-y-auto pr-1 space-y-1 custom-scrollbar min-h-0">
           {loading ? (
             <div className="flex flex-col items-center justify-center h-40 text-neon-blue">
@@ -127,13 +158,12 @@ const Leaderboard = ({ onClose, defaultTab = 'classic' }) => {
             <div className="text-center py-12 text-gray-500">
               <div className="text-4xl mb-2">📡</div>
               <div className="text-sm">No signals found.</div>
-              <div className="text-xs mt-1">Be the first to conquer this mode!</div>
             </div>
           ) : (
             <AnimatePresence mode="wait">
               {items.map((entry, i) => (
                 <motion.div
-                  key={`${entry.date}-${i}`}
+                  key={`${entry.name}-${i}`} // Zmieniony klucz, bo przy jabłkach może nie być daty
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: i * 0.03 }}
@@ -160,12 +190,15 @@ const Leaderboard = ({ onClose, defaultTab = 'classic' }) => {
                     <div className="font-semibold text-white text-sm truncate">
                       {entry.name}
                     </div>
-                    <div className="text-[10px] text-gray-500 truncate">
-                      {new Date(entry.date).toLocaleDateString()}
-                    </div>
+                    {/* Data wyświetla się tylko jeśli istnieje (dla gier), dla jabłek pusto */}
+                    {entry.date && (
+                        <div className="text-[10px] text-gray-500 truncate">
+                        {new Date(entry.date).toLocaleDateString()}
+                        </div>
+                    )}
                   </div>
 
-                  {/* Score */}
+                  {/* Score / Apples */}
                   <div className={`col-span-4 text-right font-mono font-bold text-lg ${i < 3 ? 'text-neon-blue' : 'text-gray-300'}`}>
                     {entry.score.toLocaleString()}
                   </div>

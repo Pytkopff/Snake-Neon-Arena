@@ -291,7 +291,6 @@ const addLocalScore = (key, score, name) => {
   setStorageItem(key, top10);
 };
 
-// 👇 TE FUNKCJE BYŁY BRAKUJĄCE:
 export const getLeaderboard = () => getStorageItem(STORAGE_KEYS.LEADERBOARD, []);
 export const getLeaderboard60s = () => getStorageItem(STORAGE_KEYS.LEADERBOARD_60S, []);
 export const getLeaderboardChill = () => getStorageItem(STORAGE_KEYS.LEADERBOARD_CHILL, []);
@@ -318,4 +317,187 @@ export const clearLeaderboard = (keyName) => {
         console.error(e);
         return false;
     }
+};
+
+// ==========================================
+// DAILY CHECK-IN SYSTEM 📅 (Wklej na końcu pliku storage.js)
+// ==========================================
+
+export const DAILY_REWARDS = [50, 100, 150, 200, 250, 300, 1000]; // Dzień 7 = 1000!
+
+// Pomocnik: Czy data to "dzisiaj"?
+const isSameDay = (d1, d2) => {
+  return d1.getFullYear() === d2.getFullYear() &&
+    d1.getMonth() === d2.getMonth() &&
+    d1.getDate() === d2.getDate();
+};
+
+// Pomocnik: Czy data to "wczoraj"?
+const isYesterday = (d1, d2) => {
+  const yesterday = new Date(d1);
+  yesterday.setDate(yesterday.getDate() - 1);
+  return isSameDay(yesterday, d2);
+};
+
+export const getDailyStatus = async (walletAddress) => {
+  // Domyślny stan (dla nowego gracza)
+  let status = {
+    streak: 0,
+    lastClaim: null,
+    canClaim: true,
+    isMissed: false, // Czy stracił passę?
+    nextReward: DAILY_REWARDS[0],
+    dayIndex: 0
+  };
+
+  // 1. Obsługa GOŚCIA (LocalStorage)
+  if (!walletAddress) {
+    const local = getStorageItem('snake_daily_status', null);
+    if (local) {
+      status.streak = local.streak;
+      status.lastClaim = local.lastClaim;
+    }
+  } 
+  // 2. Obsługa ZALOGOWANEGO (Supabase)
+  else {
+    try {
+      const { data: profile } = await supabase.from('profiles').select('id').eq('wallet_address', walletAddress).single();
+      if (profile) {
+        const { data: stats } = await supabase.from('player_stats').select('current_streak, last_daily_claim').eq('user_id', profile.id).single();
+        if (stats) {
+          status.streak = stats.current_streak || 0;
+          status.lastClaim = stats.last_daily_claim;
+        }
+      }
+    } catch (e) { console.error("Daily sync error", e); }
+  }
+
+  // 3. Logika czasu (Co wyświetlić?)
+  if (status.lastClaim) {
+    const lastDate = new Date(status.lastClaim);
+    const today = new Date();
+
+    if (isSameDay(today, lastDate)) {
+      status.canClaim = false; // Już odebrał dzisiaj
+      status.isMissed = false;
+    } else if (isYesterday(today, lastDate)) {
+      status.canClaim = true; // Idealnie, wrócił dzień po dniu
+      status.isMissed = false;
+    } else {
+      // Minęło więcej niż 1 dzień (i to nie jest pierwsze uruchomienie) -> STREAK ZERWANY!
+      // Wyjątek: jeśli streak to 0, to znaczy że dopiero zaczyna lub już zresetował.
+      if (status.streak > 0) {
+          status.canClaim = false; 
+          status.isMissed = true; 
+      }
+    }
+  }
+
+  // Zabezpieczenie cyklu 7 dni
+  const dayIndex = status.streak % 7;
+  status.nextReward = DAILY_REWARDS[dayIndex];
+  status.dayIndex = dayIndex;
+
+  return status;
+};
+
+export const claimDaily = async (walletAddress) => {
+  const today = new Date().toISOString();
+  
+  // A. GOŚĆ
+  if (!walletAddress) {
+    const current = getStorageItem('snake_daily_status', { streak: 0 });
+    let newStreak = current.streak + 1;
+    
+    // Reset jeśli zerwany (gość nie ma opcji naprawy za jabłka bo nie ma bazy)
+    const lastDate = current.lastClaim ? new Date(current.lastClaim) : null;
+    if (lastDate && !isYesterday(new Date(), lastDate) && !isSameDay(new Date(), lastDate)) {
+        newStreak = 1;
+    }
+
+    const rewardIndex = (newStreak - 1) % 7;
+    const reward = DAILY_REWARDS[rewardIndex];
+
+    setStorageItem('snake_daily_status', { streak: newStreak, lastClaim: today });
+    
+    // Dodaj jabłka do portfela gościa
+    const currentApples = getStorageItem(STORAGE_KEYS.TOTAL_APPLES, 0);
+    setStorageItem(STORAGE_KEYS.TOTAL_APPLES, currentApples + reward);
+
+    return { success: true, reward, newStreak };
+  }
+
+  // B. ZALOGOWANY
+  try {
+    const { data: profile } = await supabase.from('profiles').select('id').eq('wallet_address', walletAddress).single();
+    if (!profile) return { success: false };
+
+    // 1. Sprawdź stan w bazie przed aktualizacją
+    const { data: stats } = await supabase.from('player_stats').select('current_streak, last_daily_claim').eq('user_id', profile.id).single();
+    
+    let newStreak = (stats.current_streak || 0) + 1;
+    
+    // Logika resetu (jeśli ktoś próbuje oszukać API i claimować po tygodniu bez naprawy)
+    const lastDate = stats.last_daily_claim ? new Date(stats.last_daily_claim) : null;
+    if (lastDate && !isYesterday(new Date(), lastDate) && !isSameDay(new Date(), lastDate)) {
+        newStreak = 1; // Brutalny reset
+    }
+
+    const rewardIndex = (newStreak - 1) % 7;
+    const reward = DAILY_REWARDS[rewardIndex];
+
+    // 2. Aktualizacja w bazie
+    await supabase.from('player_stats').update({
+      current_streak: newStreak,
+      last_daily_claim: today
+    }).eq('user_id', profile.id);
+
+    // 3. Dodanie jabłek (przez RPC, które już masz)
+    await supabase.rpc('increment_apples', { row_id: profile.id, quantity: reward });
+
+    return { success: true, reward, newStreak };
+
+  } catch (e) {
+    console.error(e);
+    return { success: false };
+  }
+};
+
+export const repairStreakWithApples = async (walletAddress) => {
+    if (!walletAddress) return false; // Goście nie mogą naprawiać
+
+    try {
+        const { data: profile } = await supabase.from('profiles').select('id').eq('wallet_address', walletAddress).single();
+        if (!profile) return false;
+
+        // Wywołanie naszej NOWEJ funkcji SQL "repair_streak"
+        const { data: success, error } = await supabase.rpc('repair_streak', { 
+            row_user_id: profile.id, 
+            cost: 500 
+        });
+
+        if (error) throw error;
+        return success; // Zwraca true jeśli się udało, false jeśli brak środków
+
+    } catch (e) {
+        console.error("Repair failed:", e);
+        return false;
+    }
+};
+
+export const resetStreakToZero = async (walletAddress) => {
+    // Gracz poddał się i nie płaci. Resetujemy streak do 0.
+    if (!walletAddress) {
+        setStorageItem('snake_daily_status', { streak: 0, lastClaim: null });
+        return true;
+    }
+    
+    try {
+        const { data: profile } = await supabase.from('profiles').select('id').eq('wallet_address', walletAddress).single();
+        await supabase.from('player_stats').update({
+            current_streak: 0,
+            last_daily_claim: null 
+        }).eq('user_id', profile.id);
+        return true;
+    } catch(e) { return false; }
 };

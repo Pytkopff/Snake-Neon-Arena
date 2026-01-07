@@ -35,7 +35,9 @@ body {
     -ms-overflow-style: none;
     scrollbar-width: none;
 }
-
+.scrollbar-hide::-webkit-scrollbar {
+  display: none; /* Chrome, Safari and Opera */
+}
 /* Animacja wejścia elementów */
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(10px); }

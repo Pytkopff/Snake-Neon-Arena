@@ -1,119 +1,162 @@
 import { motion } from 'framer-motion';
+import { useState, useEffect } from 'react';
 
-const GameOver = ({ score, bestScore, isNewRecord, onRestart, onShare, onBackToMenu, endReason, applesCollected }) => {
+const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare, onBackToMenu, endReason, applesCollected }) => {
+  const [displayScore, setDisplayScore] = useState(0);
+
+  // 1. EFEKT KASYNA (Ticker)
+  // Wynik rośnie od 0 do końcowego w ciągu 1.5 sekundy
+  useEffect(() => {
+    let start = 0;
+    const duration = 1500; 
+    const steps = 60;
+    const increment = score / steps;
+    const stepTime = duration / steps;
+
+    if (score === 0) return;
+
+    const timer = setInterval(() => {
+      start += increment;
+      if (start >= score) {
+        setDisplayScore(score);
+        clearInterval(timer);
+      } else {
+        setDisplayScore(Math.floor(start));
+      }
+    }, stepTime);
+
+    return () => clearInterval(timer);
+  }, [score]);
+
+  // 2. OBLICZENIA PASKA "CHASE" (Ile brakowało do rekordu?)
+  const progressToBest = bestScore > 0 ? Math.min(100, (score / bestScore) * 100) : 100;
+  const missingPoints = bestScore - score;
+
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      className="fixed inset-0 bg-black/80 backdrop-blur-sm z-40 flex items-center justify-center p-4"
+      className="fixed inset-0 bg-black/90 backdrop-blur-md z-[60] flex items-center justify-center p-4"
     >
       <motion.div
-        initial={{ scale: 0.8, y: 50 }}
+        initial={{ scale: 0.9, y: 30 }}
         animate={{ scale: 1, y: 0 }}
-        transition={{ type: 'spring', damping: 15 }}
-        className="glass rounded-2xl p-8 max-w-md w-full text-center"
+        transition={{ type: 'spring', damping: 20 }}
+        className="glass rounded-2xl p-6 w-full max-w-sm text-center border border-white/10 shadow-[0_0_50px_rgba(0,0,0,0.5)] relative overflow-hidden"
       >
-        {/* Title */}
-        <motion.div
-          initial={{ scale: 0 }}
-          animate={{ scale: 1 }}
-          transition={{ delay: 0.2, type: 'spring' }}
-        >
-          <h2 className="text-4xl font-bold mb-2">
-            {isNewRecord ? '🏆 NEW RECORD!' : endReason === 'timeup' ? "⏱️ Time's up" : '💀 Game Over'}
-          </h2>
-          {isNewRecord && (
-            <p className="text-neon-purple text-lg mb-4">
-              You crushed your previous best!
-            </p>
-          )}
-          {endReason === 'timeup' && (
-            <p className="text-gray-300 text-sm mb-4">Time's up — final score below</p>
-          )}
-        </motion.div>
+        
+        {/* Tło dla Nowego Rekordu */}
+        {isNewRecord && (
+           <div className="absolute inset-0 bg-gradient-to-t from-yellow-500/10 via-purple-500/10 to-transparent animate-pulse pointer-events-none" />
+        )}
 
-        {/* Score Display */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
-          className="my-8"
-        >
-          <div className="text-6xl font-bold neon-text mb-2">
-            {score.toLocaleString()}
-          </div>
-          <div className="text-gray-400">
-            Best: <span className="text-neon-purple font-bold">{bestScore.toLocaleString()}</span>
-          </div>
-        </motion.div>
-
-        {/* Stats */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.4 }}
-          className="glass rounded-lg p-4 mb-6"
-        >
-          <div className="grid grid-cols-3 gap-4 text-center">
-            <div>
-              <div className="text-2xl font-bold text-neon-blue">
-                  {applesCollected}
-                </div>
-                <div className="text-xs text-gray-400">Apples</div>
-            </div>
-            <div>
-              <div className="text-2xl font-bold text-neon-purple">
-                {Math.floor(score / 100)}
-              </div>
-              <div className="text-xs text-gray-400">Combos</div>
-            </div>
-            <div>
-              <div className="text-2xl font-bold text-neon-pink">
-                {score > bestScore ? '+' : ''}{score - bestScore}
-              </div>
-              <div className="text-xs text-gray-400">vs Best</div>
-            </div>
-          </div>
-        </motion.div>
-
-        {/* Buttons */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.5 }}
-          className="space-y-3"
-        >
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <button
-              onClick={onRestart}
-              className="btn-primary w-full"
+        {/* --- NAGŁÓWEK --- */}
+        <div className="mb-6 relative z-10">
+          {isNewRecord ? (
+            <motion.div 
+              animate={{ scale: [1, 1.05, 1] }} 
+              transition={{ repeat: Infinity, duration: 2 }}
             >
-              🔁 Play Again
-            </button>
+              <div className="text-5xl mb-2 drop-shadow-lg">🏆</div>
+              <h2 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 to-yellow-500 drop-shadow-[0_0_15px_rgba(234,179,8,0.5)] uppercase italic">
+                New Record!
+              </h2>
+              <p className="text-sm text-yellow-200 font-bold mt-1">LEGENDARY RUN!</p>
+            </motion.div>
+          ) : (
+            <div>
+              <div className="text-5xl mb-2 grayscale opacity-80">
+                 {endReason === 'timeup' ? "⏱️" : "💀"}
+              </div>
+              <h2 className="text-3xl font-black text-white drop-shadow-md uppercase">
+                 {endReason === 'timeup' ? "Time's Up" : "Game Over"}
+              </h2>
+              <p className="text-sm text-gray-400 mt-1">Don't give up! Try again.</p>
+            </div>
+          )}
+        </div>
+
+        {/* --- WYNIK GŁÓWNY (Licznik) --- */}
+        <div className="mb-6 relative z-10">
+          <div className="text-6xl font-black text-white drop-shadow-[0_0_20px_rgba(0,240,255,0.4)] font-mono tracking-tighter">
+            {displayScore.toLocaleString()}
+          </div>
+          <div className="text-xs text-neon-blue font-bold tracking-widest uppercase mt-1">Final Score</div>
+        </div>
+
+        {/* --- PASEK POŚCIGU (Tylko jak przegrasz) --- */}
+        {!isNewRecord && bestScore > 0 && (
+          <div className="mb-6 bg-black/40 rounded-xl p-3 border border-white/5 relative z-10 mx-2">
+             <div className="flex justify-between text-[10px] text-gray-400 mb-1 uppercase tracking-wider font-bold">
+                <span>Progress to Best</span>
+                <span className="text-white">{Math.floor(progressToBest)}%</span>
+             </div>
+             <div className="w-full h-3 bg-gray-800 rounded-full overflow-hidden border border-white/5">
+                <motion.div 
+                  initial={{ width: 0 }} 
+                  animate={{ width: `${progressToBest}%` }} 
+                  transition={{ duration: 1.5, ease: "easeOut" }}
+                  className="h-full bg-gradient-to-r from-gray-600 via-gray-400 to-white shadow-[0_0_10px_rgba(255,255,255,0.5)]"
+                />
+             </div>
+             <p className="text-[10px] text-gray-400 mt-2">
+                You were only <span className="text-red-400 font-bold">{missingPoints} pts</span> away from glory!
+             </p>
+          </div>
+        )}
+
+        {/* --- STATYSTYKI --- */}
+        <div className="grid grid-cols-2 gap-3 mb-6 relative z-10">
+          <div className="bg-white/5 p-3 rounded-xl border border-white/10">
+            <div className="text-2xl font-bold text-red-400 drop-shadow-sm">{applesCollected}</div>
+            <div className="text-[10px] text-gray-400 uppercase font-bold">Apples</div>
+          </div>
+          <div className="bg-white/5 p-3 rounded-xl border border-white/10">
+            {/* Używamy prawdziwego maxCombo z propsów, jeśli jest dostępny, inaczej fallback */}
+            <div className="text-2xl font-bold text-yellow-400 drop-shadow-sm">x{maxCombo || 0}</div>
+            <div className="text-[10px] text-gray-400 uppercase font-bold">Max Combo</div>
+          </div>
+        </div>
+
+        {/* --- PRZYCISKI --- */}
+        <div className="space-y-3 relative z-10">
+          <button
+            onClick={onRestart}
+            className="w-full py-3 rounded-xl bg-neon-blue text-black font-black text-lg hover:scale-[1.02] active:scale-95 transition-all shadow-[0_0_20px_rgba(0,240,255,0.4)]"
+          >
+            🔄 PLAY AGAIN
+          </button>
+          
+          <div className="flex gap-3">
             <button
               onClick={onBackToMenu}
-              className="btn-secondary w-full"
+              className="flex-1 py-3 rounded-xl bg-white/5 text-white font-bold text-sm border border-white/10 hover:bg-white/10 transition-colors"
             >
-              ↩️ Back to Menu
+              ↩️ Menu
+            </button>
+            <button
+              onClick={onShare}
+              className={`flex-1 py-3 rounded-xl font-bold text-sm border transition-all flex items-center justify-center gap-2
+                ${isNewRecord 
+                  ? 'bg-purple-600 border-purple-400 text-white animate-pulse shadow-[0_0_15px_rgba(168,85,247,0.5)]' 
+                  : 'bg-transparent border-white/10 text-gray-300 hover:bg-white/5'
+                }`}
+            >
+              🚀 Share
             </button>
           </div>
-          <button
-            onClick={onShare}
-            className="btn-secondary w-full mt-3"
-          >
-            🔗 Share on Farcaster
-          </button>
-        </motion.div>
+        </div>
 
         {/* Tip */}
         <motion.p
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          transition={{ delay: 0.6 }}
-          className="text-xs text-gray-500 mt-4"
+          transition={{ delay: 1 }}
+          className="text-[10px] text-gray-500 mt-4"
         >
-          💡 Tip: Build combos for massive score multipliers!
+          💡 Tip: Grab magnets to collect apples from a distance!
         </motion.p>
+
       </motion.div>
     </motion.div>
   );

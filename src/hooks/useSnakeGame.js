@@ -72,6 +72,7 @@ export const useSnakeGame = (isPaused) => {
       startEffects.push({ 
         type: 'SHIELD', 
         endTime: Date.now() + 3000, 
+        duration: 3000, 
         config: POWERUP_TYPES.SHIELD 
       });
     } else if (mode === 'walls') { 
@@ -111,30 +112,65 @@ export const useSnakeGame = (isPaused) => {
     gameState.current.isRunning = false;
   };
 
+  // 🔥🔥🔥 NAPRAWIONA FUNKCJA changeDirection 🔥🔥🔥
   const changeDirection = useCallback((newDir) => {
     const state = gameState.current;
+    
+    // Pobierz ostatni zaplanowany kierunek (albo aktualny jeśli kolejka pusta)
     const lastScheduledDirection = state.directionQueue.length > 0
       ? state.directionQueue[state.directionQueue.length - 1]
       : state.direction;
 
-    if (lastScheduledDirection.x + newDir.x === 0 && lastScheduledDirection.y + newDir.y === 0) return;
-
-    if (state.directionQueue.length < 4) {
-      state.directionQueue.push(newDir);
+    // ✅ BLOKADA 1: Przeciwne kierunki (180°)
+    // Nie można zawrócić: prawo->lewo, lewo->prawo, góra->dół, dół->góra
+    const isOpposite = (
+      lastScheduledDirection.x + newDir.x === 0 && 
+      lastScheduledDirection.y + newDir.y === 0
+    );
+    
+    if (isOpposite) {
+      console.log('🚫 Zablokowano przeciwny kierunek');
+      return;
     }
+
+    // ✅ BLOKADA 2: Ten sam kierunek (spam)
+    // Jeśli wąż już idzie w tym kierunku, ignoruj
+    const isSame = (
+      lastScheduledDirection.x === newDir.x && 
+      lastScheduledDirection.y === newDir.y
+    );
+    
+    if (isSame) {
+      console.log('🚫 Ten sam kierunek - ignoruję spam');
+      return;
+    }
+
+    // ✅ BLOKADA 3: Maksymalnie 2 ruchy w kolejce (dla szybkich combo)
+    // Było 4, zmniejszam do 2 - wystarczy dla najszybszych palców
+    if (state.directionQueue.length >= 2) {
+      console.log('🚫 Kolejka pełna - poczekaj na wykonanie ruchu');
+      return;
+    }
+
+    // ✅ Wszystko OK - dodaj do kolejki
+    console.log('✅ Dodano kierunek do kolejki:', newDir);
+    state.directionQueue.push(newDir);
   }, []);
 
   const activatePowerUp = (powerUpConfig) => {
-    // 🔥 REMOVED INTERNAL SOUND PLAY - Let App.jsx handle it or keep it silent
-    // playSound('POWERUP'); 
-    
     const state = gameState.current;
     const now = Date.now();
     const endTime = now + powerUpConfig.duration;
     const type = powerUpConfig.type;
 
     state.activeEffects = state.activeEffects.filter(e => e.type !== type);
-    state.activeEffects.push({ type, endTime, config: powerUpConfig });
+    
+    state.activeEffects.push({ 
+        type, 
+        endTime, 
+        duration: powerUpConfig.duration,
+        config: powerUpConfig 
+    });
 
     if (type === 'SPEED') {
       state.speed = state.mode === 'chill' ? 50 : 60; 
@@ -146,11 +182,11 @@ export const useSnakeGame = (isPaused) => {
   };
 
   const updateActivePowerUpsUI = () => {
-    const now = Date.now();
     const uiList = gameState.current.activeEffects.map(e => ({
       id: e.config.id,
       emoji: e.config.emoji,
-      timeLeft: Math.max(0, e.endTime - now)
+      expiresAt: e.endTime,
+      duration: e.duration || e.config.duration || 5000
     }));
     setActivePowerUps(uiList);
   };
@@ -197,6 +233,7 @@ export const useSnakeGame = (isPaused) => {
       const activeCount = state.activeEffects.length;
       state.activeEffects = state.activeEffects.filter(e => {
         if (e.endTime > now) return true;
+        
         if (e.type === 'SPEED') {
            let baseSpeed = 150;
            if (state.mode === 'classic') baseSpeed = Math.max(50, 100 - Math.floor(score/50));
@@ -208,8 +245,9 @@ export const useSnakeGame = (isPaused) => {
         if (e.type === 'SCORE_X2') state.scoreMultiplier = 1;
         return false;
       });
-      if (activeCount !== state.activeEffects.length || now % 200 < 20) {
-         updateActivePowerUpsUI();
+      
+      if (activeCount !== state.activeEffects.length) {
+          updateActivePowerUpsUI();
       }
 
       if (timestamp - state.lastMoveTime > state.speed) {
@@ -249,9 +287,7 @@ export const useSnakeGame = (isPaused) => {
 
         if (!isInvincible && checkSelfCollision(head, state.snake)) {
           if (state.mode === 'chill') {
-             // 🔥 REMOVED: playSound('POWERUP'); 
-             // We don't want a sound here when hitting tail in Chill mode.
-             
+             // Chill mode - no death on tail
           } 
           else {
             state.isRunning = false;
@@ -269,9 +305,6 @@ export const useSnakeGame = (isPaused) => {
         const shouldEatFood = positionsEqual(head, food) || (isMagnetActive && distToFood <= 3);
 
         if (shouldEatFood) {
-          // 🔥 REMOVED INTERNAL EAT SOUND - App.jsx handles it via applesCollected change
-          // playSound('EAT'); 
-          
           if (window.navigator.vibrate) window.navigator.vibrate(50);
           if (state.mode === 'walls') state.blitzEndTime += 1000; 
 
@@ -352,6 +385,8 @@ export const useSnakeGame = (isPaused) => {
   return {
     snake, food, score, applesCollected, gameOver, activePowerUps, gamePowerUpItem, 
     combo, maxCombo, timeLeft, currentSpeed,
-    startGame, resetGame, changeDirection
+    startGame, resetGame, changeDirection,
+    snakeDirection: gameState.current.direction
+  
   };
 };

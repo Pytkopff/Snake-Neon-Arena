@@ -3,8 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     
+   <meta name="viewport"
+  content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    
+    <meta name="theme-color" content="#0a0e27" />
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
     <meta property="og:title" content="Snake Neon Arena" />
     <meta property="og:description" content="Play the classic Snake game in neon style!" />
     <meta property="og:image" content="https://snake-neon-arena.vercel.app/hero.png" />
@@ -23,15 +29,21 @@
         padding: 0;
         width: 100%;
         height: 100%;
-        overflow: hidden;
+        overflow: hidden; /* Blokada pasków przewijania */
         background: linear-gradient(135deg, #0a0e27 0%, #1a103d 100%);
+        
+        /* 🔥 BLOKADA GESTÓW SYSTEMOWYCH 🔥 */
+        touch-action: none;        /* Blokuje przesuwanie/zoomowanie palcem */
+        overscroll-behavior: none; /* Blokuje "pull-to-refresh" (gumowe przewijanie) */
+        -webkit-user-select: none; /* Blokuje zaznaczanie tekstu na iOS */
+        user-select: none;         /* Blokuje zaznaczanie tekstu */
+        -webkit-tap-highlight-color: transparent; /* Usuwa błysk przy kliknięciu */
       }
       #root {
-        width: 100%;
-        height: 100%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
+      width: 100%;
+      height: 100%;
+      position: relative;
+      overflow: hidden;
       }
       body {
         opacity: 0;
@@ -43,6 +55,22 @@
     </style>
   </head>
   <body>
+    <script>
+      let lastTouchEnd = 0;
+      document.addEventListener('touchstart', function(event) {
+          if (event.touches.length > 1) {
+              event.preventDefault(); // Blokuje szczypanie (multitouch zoom)
+          }
+      }, { passive: false });
+
+      document.addEventListener('touchend', function(event) {
+          const now = (new Date()).getTime();
+          if (now - lastTouchEnd <= 300) {
+              event.preventDefault(); // Blokuje double-tap zoom
+          }
+          lastTouchEnd = now;
+      }, { passive: false });
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

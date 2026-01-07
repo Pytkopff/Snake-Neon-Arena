@@ -1,58 +1,77 @@
 // src/components/Particles.jsx
 import { useState, useImperativeHandle, forwardRef, useEffect, useRef } from 'react';
+import { GRID_SIZE } from '../utils/constants';
+
+// 🔥 1. GLOBALNY LICZNIK (To gwarantuje, że ID nigdy się nie powtórzy)
+let globalParticleId = 0;
 
 const Particles = forwardRef((props, ref) => {
   const [particles, setParticles] = useState([]);
   const reqRef = useRef();
+  const cleanupTimeout = useRef();
 
-  // Tę funkcję wywołujemy z App.jsx: "Zrób wybuch w punkcie X, Y"
   const explode = (x, y, color) => {
+    // 🔥 2. BEZPIECZNIK: Jeśli coś wisi, czyścimy stare przed nowym wybuchem
+    if (cleanupTimeout.current) clearTimeout(cleanupTimeout.current);
+
     const newParticles = [];
-    // Generujemy 12 cząsteczek
-    for (let i = 0; i < 12; i++) {
-      const angle = (Math.PI * 2 * i) / 12; // Rozkładamy je w kółku
-      const speed = Math.random() * 0.5 + 0.3; // Losowa prędkość
-      
+    const count = 20 + Math.random() * 10; 
+
+    for (let i = 0; i < count; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = Math.random() * 0.8 + 0.2;
+      globalParticleId++; // Zwiększamy licznik
+
       newParticles.push({
-        id: Math.random(),
-        x: x + 0.5, // Startujemy ze środka kratki (gridu)
+        id: globalParticleId, // Pancerne ID
+        x: x + 0.5, 
         y: y + 0.5,
-        vx: Math.cos(angle) * speed, // Wektor prędkości X
-        vy: Math.sin(angle) * speed, // Wektor prędkości Y
-        life: 1.0, // Życie od 1.0 (pełne) do 0.0 (zniknięcie)
-        color: color
+        vx: Math.cos(angle) * speed, 
+        vy: Math.sin(angle) * speed,
+        life: 1.0, 
+        color: color,
+        size: Math.random() < 0.3 ? 4 : 2, // Troszkę większe niż w starym kodzie
+        decay: 0.03 + Math.random() * 0.03 // Szybsze znikanie
       });
     }
     
-    // Dodajemy nowe cząsteczki do istniejących (jeśli jakieś jeszcze latają)
     setParticles(prev => [...prev, ...newParticles]);
+
+    // 🔥 3. OSTATECZNE CZYSZCZENIE: Za 1.5 sekundy kasujemy WSZYSTKO.
+    // To jest gwarancja, że kropka nie zostanie na zawsze.
+    cleanupTimeout.current = setTimeout(() => {
+      setParticles([]);
+    }, 1500);
   };
 
-  // Udostępniamy funkcję rodzicowi (App.jsx)
-  useImperativeHandle(ref, () => ({
-    explode
-  }));
+  useImperativeHandle(ref, () => ({ explode }));
 
-  // Pętla animacji (działa niezależnie od pętli gry!)
   useEffect(() => {
     const update = () => {
       setParticles(prev => {
-        if (prev.length === 0) return prev; // Jak pusto, to nic nie robimy
+        if (prev.length === 0) return prev;
 
         return prev
           .map(p => ({
             ...p,
-            x: p.x + p.vx,      // Przesuń X
-            y: p.y + p.vy,      // Przesuń Y
-            life: p.life - 0.04 // Zmniejsz życie (szybkość znikania)
+            x: p.x + p.vx,
+            y: p.y + p.vy,
+            vx: p.vx * 0.95,      // Fizyka ze starego kodu (opór)
+            vy: p.vy * 0.95 + 0.02, // Fizyka ze starego kodu (grawitacja)
+            life: p.life - p.decay
           }))
-          .filter(p => p.life > 0); // Usuń martwe cząsteczki
+          // 🔥 4. FILTR: Usuwamy jak życie spadnie poniżej 10% (nie 0!)
+          .filter(p => p.life > 0.1);
       });
       reqRef.current = requestAnimationFrame(update);
     };
 
     reqRef.current = requestAnimationFrame(update);
-    return () => cancelAnimationFrame(reqRef.current);
+    
+    return () => {
+      cancelAnimationFrame(reqRef.current);
+      if (cleanupTimeout.current) clearTimeout(cleanupTimeout.current);
+    };
   }, []);
 
   return (
@@ -60,16 +79,21 @@ const Particles = forwardRef((props, ref) => {
       {particles.map(p => (
         <div
           key={p.id}
-          className="absolute w-2 h-2 rounded-full shadow-[0_0_8px_currentColor]" // Dodajemy GLOW!
+          className="absolute rounded-full"
           style={{
-            // Przeliczamy pozycję z Gridu na % (zakładając planszę 21x21)
-            // Jeśli masz inny rozmiar siatki niż 21, zmień liczbę poniżej!
-            left: `${(p.x / 21) * 100}%`, 
-            top: `${(p.y / 21) * 100}%`,
-            backgroundColor: p.color,
-            color: p.color, // Do shadow-color
+            willChange: 'transform, opacity',
+            // 🔥 5. OPTYMALIZACJA: Skalujemy życie do 0
+            transform: `translate3d(-50%, -50%, 0) scale(${p.life})`,
+            width: `${p.size * 3}px`, // Większe pudełko na gradient
+            height: `${p.size * 3}px`,
+            left: `${(p.x / GRID_SIZE) * 100}%`, 
+            top: `${(p.y / GRID_SIZE) * 100}%`,
+            
+            // 🔥 6. TRICK DLA IPHONE: Zamiast cienia (box-shadow) używamy gradientu.
+            // Wygląda jak glow, ale działa 10x szybciej.
+            background: `radial-gradient(circle, ${p.color} 0%, transparent 70%)`,
+            
             opacity: p.life,
-            transform: `scale(${p.life}) translate(-50%, -50%)`, // Centrujemy i skalujemy
           }}
         />
       ))}
