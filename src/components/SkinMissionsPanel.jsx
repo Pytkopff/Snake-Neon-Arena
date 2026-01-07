@@ -1,12 +1,13 @@
 import { useState } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useAccount, useWalletClient, useSwitchChain } from 'wagmi';
 import { ethers } from "ethers"; 
 import { getAddress, parseEther } from 'viem'; 
 import { SKINS, MISSIONS } from '../utils/constants';
+import sdk from '@farcaster/frame-sdk'; // Dodajemy SDK żeby otwierać linki
 
 const RAW_CONTRACT_ADDRESS = "0x720579D73BD6f9b16A4749D9D401f31ed9a418D7";
-const BASE_CHAIN_ID = 8453; // ID sieci Base
+const BASE_CHAIN_ID = 8453;
 
 const iface = new ethers.utils.Interface([
   "function claim(address receiver, uint256 tokenId, uint256 quantity, address currency, uint256 pricePerToken, tuple(bytes32[] proof, uint256 quantityLimitPerWallet, uint256 pricePerToken, address currency) allowlistProof, bytes data)"
@@ -23,6 +24,9 @@ const SkinMissionsPanel = ({
 }) => {
   const [activeTab, setActiveTab] = useState('missions');
   const [isMinting, setIsMinting] = useState(false);
+  
+  // 🔥 NOWY STAN DLA SUKCESU 🔥
+  const [mintSuccess, setMintSuccess] = useState(null); // null lub hash transakcji
 
   const { address, chainId } = useAccount(); 
   const { data: walletClient } = useWalletClient(); 
@@ -34,7 +38,6 @@ const SkinMissionsPanel = ({
     setIsMinting(true);
 
     try {
-      // 1. Sprawdź sieć
       if (chainId !== BASE_CHAIN_ID) {
           try {
               await switchChainAsync({ chainId: BASE_CHAIN_ID });
@@ -59,7 +62,7 @@ const SkinMissionsPanel = ({
 
       const allowlistProof = {
         proof: [],
-        quantityLimitPerWallet: MAX_UINT256, // Nielimitowany mint (musi pasować do Unlimited w Thirdweb)
+        quantityLimitPerWallet: MAX_UINT256,
         pricePerToken: pricePerToken,
         currency: cleanCurrency
       };
@@ -77,18 +80,17 @@ const SkinMissionsPanel = ({
 
       console.log("✅ Hash:", hash);
 
-      // 🔥 NOWOŚĆ: Powiadomienie o sukcesie!
-      alert(`🎉 MINT STARTED!\n\nYour transaction has been sent.\nThe badge will appear in your wallet soon.\n\nTx Hash: ${hash.slice(0, 10)}...`);
+      // 🔥 ZAMIAST ALERTU -> USTAW STAN SUKCESU 🔥
+      setMintSuccess(hash);
       
-      onClose(); // Zamknij panel, żeby gracz wrócił do gry
+      // Nie zamykamy panelu od razu, żeby gracz nacieszył oczy sukcesem
 
     } catch (err) {
       console.error("❌ Mint Error:", err);
-      // 🔥 NOWOŚĆ: Obsługa błędów dla użytkownika
       if (err.message && err.message.includes("User rejected")) {
-         // Użytkownik anulował, nic nie rób
+         // User anulował
       } else {
-         alert("Mint failed. Check console for details or make sure you have enough ETH for gas.");
+         alert("Mint failed. Check console.");
       }
     } finally {
       setIsMinting(false);
@@ -117,6 +119,42 @@ const SkinMissionsPanel = ({
 
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-black/80 backdrop-blur-xl rounded-xl border border-white/10 overflow-hidden relative shadow-2xl">
+      
+      {/* 🔥 MODAL SUKCESU (NAKŁADKA) 🔥 */}
+      <AnimatePresence>
+        {mintSuccess && (
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.9 }}
+            className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/95 backdrop-blur-md p-6 text-center"
+          >
+             <div className="w-20 h-20 bg-green-500/20 rounded-full flex items-center justify-center mb-4 border border-green-500 shadow-[0_0_30px_#22c55e]">
+                <div className="text-4xl">🎉</div>
+             </div>
+             
+             <h2 className="text-2xl font-black text-white mb-2 tracking-wider">MINT SUCCESS!</h2>
+             <p className="text-gray-400 text-sm mb-6">Your transaction is on its way to the blockchain.</p>
+             
+             <div className="flex flex-col gap-3 w-full">
+               <button 
+                 onClick={() => sdk.actions.openUrl(`https://basescan.org/tx/${mintSuccess}`)}
+                 className="w-full py-3 rounded-xl border border-white/10 bg-white/5 text-neon-blue font-bold text-sm hover:bg-white/10 transition-all flex items-center justify-center gap-2"
+               >
+                 🔍 View on BaseScan
+               </button>
+               
+               <button 
+                 onClick={() => { setMintSuccess(null); onClose(); }}
+                 className="w-full py-3 rounded-xl bg-green-500 text-black font-black tracking-widest hover:scale-105 transition-all shadow-[0_0_20px_rgba(34,197,94,0.4)]"
+               >
+                 AWESOME!
+               </button>
+             </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* TABS */}
       <div className="flex border-b border-white/10 shrink-0 bg-white/5">
          <button onClick={() => setActiveTab('skins')} className={`flex-1 py-4 text-sm font-bold uppercase tracking-wider transition-colors relative ${activeTab === 'skins' ? 'text-neon-blue' : 'text-gray-500 hover:text-gray-300'}`}>
