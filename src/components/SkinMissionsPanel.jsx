@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { useAccount, useWalletClient, useSwitchChain } from 'wagmi'; // Dodano useSwitchChain
+import { useAccount, useWalletClient, useSwitchChain } from 'wagmi';
 import { ethers } from "ethers"; 
 import { getAddress, parseEther } from 'viem'; 
 import { SKINS, MISSIONS } from '../utils/constants';
@@ -21,12 +21,12 @@ const SkinMissionsPanel = ({
   onClose, 
   playerStats 
 }) => {
-  const [activeTab, setActiveTab] = useState('missions'); // Domyślnie otwieramy na misjach (lepsze UX)
+  const [activeTab, setActiveTab] = useState('missions');
   const [isMinting, setIsMinting] = useState(false);
 
   const { address, chainId } = useAccount(); 
   const { data: walletClient } = useWalletClient(); 
-  const { switchChainAsync } = useSwitchChain(); // Hook do zmiany sieci
+  const { switchChainAsync } = useSwitchChain();
 
   const handleMint = async (tokenId) => {
     if (!address || !walletClient) return;
@@ -59,7 +59,7 @@ const SkinMissionsPanel = ({
 
       const allowlistProof = {
         proof: [],
-        quantityLimitPerWallet: MAX_UINT256,
+        quantityLimitPerWallet: MAX_UINT256, // Nielimitowany mint (musi pasować do Unlimited w Thirdweb)
         pricePerToken: pricePerToken,
         currency: cleanCurrency
       };
@@ -77,8 +77,19 @@ const SkinMissionsPanel = ({
 
       console.log("✅ Hash:", hash);
 
+      // 🔥 NOWOŚĆ: Powiadomienie o sukcesie!
+      alert(`🎉 MINT STARTED!\n\nYour transaction has been sent.\nThe badge will appear in your wallet soon.\n\nTx Hash: ${hash.slice(0, 10)}...`);
+      
+      onClose(); // Zamknij panel, żeby gracz wrócił do gry
+
     } catch (err) {
       console.error("❌ Mint Error:", err);
+      // 🔥 NOWOŚĆ: Obsługa błędów dla użytkownika
+      if (err.message && err.message.includes("User rejected")) {
+         // Użytkownik anulował, nic nie rób
+      } else {
+         alert("Mint failed. Check console for details or make sure you have enough ETH for gas.");
+      }
     } finally {
       setIsMinting(false);
     }
@@ -94,7 +105,6 @@ const SkinMissionsPanel = ({
        else if (mission.mode === 'chill') current = playerStats.bestScoreChill || 0;
        else current = playerStats.bestScore || 0;
     }
-    // Zabezpieczenie, żeby nie pokazywać więcej niż 100%
     const percent = Math.min(100, Math.floor((current / mission.target) * 100));
     return { current, percent };
   };
@@ -155,7 +165,7 @@ const SkinMissionsPanel = ({
            </div>
         )}
 
-        {/* MISSIONS TAB - WERSJA 2.0 (NEON BARS) */}
+        {/* MISSIONS TAB */}
         {activeTab === 'missions' && (
            <div className="space-y-4 pb-4">
              {MISSIONS.map(mission => {
