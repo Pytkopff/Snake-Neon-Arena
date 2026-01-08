@@ -2,26 +2,28 @@
 
 import DailyCheckIn from './components/DailyCheckIn';
 import { useEffect, useState, useRef } from 'react';
-import { Howl } from 'howler';
+// import { Howl } from 'howler'; <--- USUŃ TO
 import sdk from '@farcaster/frame-sdk';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount } from 'wagmi';
 
 import { useSnakeGame } from './hooks/useSnakeGame';
-import { GRID_SIZE, SOUNDS, SKINS, MISSIONS } from './utils/constants';
+import { GRID_SIZE, SKINS, MISSIONS } from './utils/constants'; // USUŃ SOUNDS z importu, jest już w Managerze
 import {
   getBestScore, updatePlayerStats, checkUnlocks, getUnlockedSkins,
   getSelectedSkin, setSelectedSkin, getPlayerStats, syncProfile
 } from './utils/storage';
 
+// 🔥 IMPORTUJ MANAGERA
+import SoundManager from './utils/SoundManager'; 
+
 import GameBoard from './components/GameBoard';
 import HUD from './components/HUD';
-import ActiveEffects from './components/ActiveEffects'; // 🔥 NOWY IMPORT
+import ActiveEffects from './components/ActiveEffects';
 import VirtualDPad from './components/VirtualDPad';
 import GameOver from './components/GameOver';
 import Tutorial from './components/Tutorial';
-
 import Leaderboard from './components/Leaderboard';
 import SkinMissionsPanel from './components/SkinMissionsPanel';
 import Particles from './components/Particles';
@@ -39,6 +41,7 @@ function App() {
   const [showSkinSelector, setShowSkinSelector] = useState(false);
   const [unlockNotification, setUnlockNotification] = useState(null);
   const [showDailyCheckIn, setShowDailyCheckIn] = useState(false);
+  
   // Game Data
   const [gameMode, setGameMode] = useState('classic');
   const [bestScore, setBestScore] = useState(0);
@@ -54,10 +57,28 @@ function App() {
     try {
       const saved = localStorage.getItem('snake_notified_missions');
       return saved ? JSON.parse(saved) : [];
-    } catch (e) {
-      return [];
-    }
+    } catch (e) { return []; }
   });
+
+  // --- 🔥 INIT AUDIO ---
+  useEffect(() => {
+    SoundManager.init(); // Inicjalizujemy dźwięki RAZ
+  }, []);
+
+  // --- 🔥 MUSIC CONTROL (Zastąpiony stary useEffect) ---
+  useEffect(() => {
+    // Synchronizujemy stan wyciszenia
+    SoundManager.setMute(!soundEnabled);
+
+    const shouldPlayMusic = isPlaying && gameMode === 'chill' && !isPaused;
+
+    if (shouldPlayMusic) {
+      SoundManager.playMusic();
+    } else {
+      SoundManager.stopMusic();
+    }
+  }, [isPlaying, gameMode, soundEnabled, isPaused]);
+
 
   // --- Profile & Storage Sync ---
   useEffect(() => {
@@ -65,17 +86,15 @@ function App() {
       if (address) {
         const lastAddress = localStorage.getItem('snake_last_wallet');
         if (lastAddress && lastAddress !== address) {
-          ['snake_unlocked_skins', 'snake_total_apples', 'snake_total_games',
-           'snake_best_score', 'snake_best_score_walls', 'snake_best_score_chill'
-          ].forEach(k => localStorage.removeItem(k));
-
-          setIsPlaying(false);
-          setIsPaused(true);
-          setUnlockedSkins(['default']);
-          setPlayerStats({
-            totalApples: 0, totalGames: 0, bestScore: 0,
-            bestScoreClassic: 0, bestScoreWalls: 0, bestScoreChill: 0
-          });
+           // ... (czyszczenie local storage) ...
+           ['snake_unlocked_skins', 'snake_total_apples', 'snake_total_games',
+            'snake_best_score', 'snake_best_score_walls', 'snake_best_score_chill'
+           ].forEach(k => localStorage.removeItem(k));
+           
+           setIsPlaying(false);
+           setIsPaused(true);
+           setUnlockedSkins(['default']);
+           setPlayerStats({ totalApples: 0, totalGames: 0, bestScore: 0, bestScoreClassic: 0, bestScoreWalls: 0, bestScoreChill: 0 });
         }
         localStorage.setItem('snake_last_wallet', address);
         await syncProfile(address);
@@ -90,32 +109,6 @@ function App() {
     initProfile();
   }, [isConnected, address, gameMode]);
 
-  // --- Audio Setup ---
-  const soundsRef = useRef({});
-  const musicRef = useRef(null);
-
-  useEffect(() => {
-    soundsRef.current['EAT'] = new Howl({ src: [SOUNDS.EAT], volume: 0.5 });
-    soundsRef.current['POWERUP'] = new Howl({ src: [SOUNDS.POWERUP], volume: 0.7 });
-    soundsRef.current['UNLOCK'] = new Howl({ src: [SOUNDS.UNLOCK], volume: 0.6 }); 
-    
-    musicRef.current = new Howl({ src: [SOUNDS.CHILL_MUSIC], loop: true, volume: 0.3, html5: true });
-    return () => { if (musicRef.current) musicRef.current.unload(); };
-  }, []);
-
-  // Music Control
-  useEffect(() => {
-    const music = musicRef.current;
-    if (!music) return;
-    const shouldPlay = isPlaying && gameMode === 'chill' && soundEnabled && !isPaused;
-    
-    if (shouldPlay) {
-      if (!music.playing()) { music.fade(0, 0.3, 1000); music.play(); }
-    } else {
-      if (music.playing()) music.pause();
-    }
-  }, [isPlaying, gameMode, soundEnabled, isPaused]);
-
   // --- Farcaster Context ---
   useEffect(() => {
     const load = async () => {
@@ -129,24 +122,21 @@ function App() {
         setIsSDKLoaded(true);
       }
     };
-    if (sdk && !isSDKLoaded) {
-      load();
-    }
+    if (sdk && !isSDKLoaded) load();
   }, [isSDKLoaded]);
 
   // --- Game Logic ---
   const {
     snake, food, score, applesCollected, gameOver, activePowerUps, gamePowerUpItem,
     combo, maxCombo, timeLeft, currentSpeed,
-    startGame, resetGame, changeDirection,
-    snakeDirection 
+    startGame, resetGame, changeDirection, snakeDirection 
   } = useSnakeGame(isPaused);
 
   const prevApplesRef = useRef(applesCollected);
   const prevFoodRef = useRef(food);
   const prevPowerUpsLengthRef = useRef(activePowerUps.length);
 
-  // FX & Sound Triggers
+  // --- 🔥 FX & Sound Triggers (Zaktualizowane) ---
   useEffect(() => {
     if (!isPlaying) return;
     
@@ -154,20 +144,20 @@ function App() {
       if (particlesRef.current && prevFoodRef.current) {
         particlesRef.current.explode(prevFoodRef.current.x, prevFoodRef.current.y, '#ff3333');
       }
-      if (soundEnabled) soundsRef.current['EAT']?.play();
+      SoundManager.play('eat'); // Używamy Managera
     }
 
     if (activePowerUps.length > 0 && activePowerUps.length > prevPowerUpsLengthRef.current) {
       const newEffect = activePowerUps[activePowerUps.length - 1];
       if (newEffect && newEffect.id !== 'ghost') {
-        if (soundEnabled) soundsRef.current['POWERUP']?.play();
+        SoundManager.play('powerup'); // Używamy Managera
       }
     }
 
     prevApplesRef.current = applesCollected;
     prevFoodRef.current = food;
     prevPowerUpsLengthRef.current = activePowerUps.length;
-  }, [applesCollected, food, activePowerUps, soundEnabled, isPlaying]);
+  }, [applesCollected, food, activePowerUps, isPlaying]);
 
   // --- AUTO-PAUSE ---
   useEffect(() => {
@@ -178,9 +168,7 @@ function App() {
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
     const handleBlur = () => {
-       if (isPlaying && !isPaused && !gameOver) {
-         setIsPaused(true);
-       }
+       if (isPlaying && !isPaused && !gameOver) setIsPaused(true);
     };
     window.addEventListener("blur", handleBlur);
     return () => {
@@ -201,7 +189,7 @@ function App() {
         if (newUnlocks.length > 0) {
           const updatedSkins = await getUnlockedSkins(address);
           setUnlockedSkins(updatedSkins);
-          if (soundEnabled) soundsRef.current['UNLOCK']?.play();
+          SoundManager.play('unlock'); // Używamy Managera
           setUnlockNotification(newUnlocks);
         }
         if (score > bestScore) setBestScore(score);
@@ -220,6 +208,14 @@ function App() {
 
   // --- Controls ---
   const handleStart = () => {
+    SoundManager.play('click'); 
+    SoundManager.unlock();
+   if (gameMode === 'chill' && soundEnabled) {
+       SoundManager.playMusic();
+    } else {
+      SoundManager.stopMusic();
+    }
+
     setIsPlaying(true);
     setIsPaused(false);
     setNotifiedMissions([]);
@@ -244,7 +240,7 @@ function App() {
     return () => window.removeEventListener('keydown', handleKey);
   }, [isPlaying, isPaused, changeDirection]);
 
-  // Touch
+  // Touch handlers ... (bez zmian)
   const touchStart = useRef(null);
   const touchEnd = useRef(null);
   const onTouchStart = (e) => { touchEnd.current = null; touchStart.current = { x: e.targetTouches[0].clientX, y: e.targetTouches[0].clientY }; };
@@ -301,13 +297,13 @@ function App() {
         localStorage.setItem('snake_notified_missions', JSON.stringify(updatedNotified));
         
         setUnlockNotification([rewardText]);
-        if (soundEnabled) soundsRef.current['UNLOCK']?.play();
+        SoundManager.play('unlock'); // Używamy Managera
         setNotifiedMissions(updatedNotified);
       }
     });
-  }, [score, applesCollected, isPlaying, playerStats, unlockedSkins, gameMode, soundEnabled]);
+  }, [score, applesCollected, isPlaying, playerStats, unlockedSkins, gameMode]);
 
-  // Responsive Grid
+  // Responsive Grid & Render ... (Reszta bez zmian, tylko sprawdź użycie soundEnabled w HUD)
   const getCellSize = () => {
     const w = window.innerWidth; 
     const h = window.innerHeight; 
@@ -343,7 +339,8 @@ function App() {
       
       {/* DESKTOP LEFT PANEL */}
       <div className="hidden lg:flex flex-col justify-center gap-6 w-72 h-[80vh] p-6 glass rounded-l-2xl border-r-0 border-white/10 z-10 transition-all hover:translate-x-1">
-        <div className="text-neon-blue font-bold tracking-widest text-sm mb-2">YOUR CAREER</div>
+        {/* ... (Bez zmian) ... */}
+         <div className="text-neon-blue font-bold tracking-widest text-sm mb-2">YOUR CAREER</div>
         <div className="bg-black/30 p-4 rounded-xl border border-white/5 space-y-4">
            <div><div className="text-xs text-gray-400">Total Apples</div><div className="text-2xl font-bold text-red-400">{playerStats.totalApples} 🍎</div></div>
            <div><div className="text-xs text-gray-400">Games Played</div><div className="text-2xl font-bold text-purple-400">{playerStats.totalGames} 🎮</div></div>
@@ -374,10 +371,9 @@ function App() {
           )}
         </AnimatePresence>
 
-        {/* MAIN MENU (Wyświetlany tylko gdy gra NIE jest aktywna) */}
+        {/* MAIN MENU */}
         {!isPlaying && !gameOver && (
           <div className="flex flex-col h-full w-full px-4 py-6 overflow-y-auto animate-fadeIn scrollbar-hide">
-            {/* ... Cała zawartość menu bez zmian ... */}
             <h1 className="text-3xl sm:text-4xl font-bold neon-text mb-4 text-center shrink-0">SNAKE NEON ARENA</h1>
             
             <div className="text-center text-neon-blue font-bold tracking-widest text-sm mb-4 -mt-2 animate-pulse">
@@ -386,6 +382,7 @@ function App() {
 
             <div className="mb-4 flex justify-center shrink-0">
               <ConnectButton.Custom>
+                {/* ... Connect Button Logic (bez zmian) ... */}
                 {({ account, chain, openAccountModal, openChainModal, openConnectModal, authenticationStatus, mounted }) => {
                   const ready = mounted && authenticationStatus !== 'loading';
                   const connected = ready && account && chain && (!authenticationStatus || authenticationStatus === 'authenticated');
@@ -411,7 +408,11 @@ function App() {
               <SkinMissionsPanel
                 unlockedSkins={unlockedSkins} currentSkinId={currentSkinId} playerStats={playerStats}
                 onClose={() => setShowSkinSelector(false)}
-                onSelectSkin={(id) => { setCurrentSkinId(id); setSelectedSkin(id); }}
+                onSelectSkin={(id) => { 
+                   setCurrentSkinId(id); 
+                   setSelectedSkin(id); 
+                   SoundManager.play('click'); // Click sound
+                }}
               />
             ) : (
               <>
@@ -431,7 +432,7 @@ function App() {
                       { id: 'walls', name: '⚡ Time Blitz', sub: '60s Survival', color: 'pink' },
                       { id: 'chill', name: '🧘 Zen Flow', sub: 'No Stress', color: 'green' }
                     ].map(m => (
-                      <button key={m.id} onClick={() => setGameMode(m.id)} className={`p-3 rounded-xl border flex justify-between ${gameMode === m.id ? `bg-${m.color}-500/20 border-${m.color}-400` : 'bg-transparent border-white/10'}`}>
+                      <button key={m.id} onClick={() => { setGameMode(m.id); SoundManager.play('click'); }} className={`p-3 rounded-xl border flex justify-between ${gameMode === m.id ? `bg-${m.color}-500/20 border-${m.color}-400` : 'bg-transparent border-white/10'}`}>
                         <div className="text-left"><div className="font-bold text-sm">{m.name}</div><div className="text-[10px] text-gray-400">{m.sub}</div></div>
                         {gameMode === m.id && <span className={`text-${m.color}-400 text-xs`}>Selected</span>}
                       </button>
@@ -441,13 +442,13 @@ function App() {
 
                 <div className="mt-auto w-full pb-4 space-y-2">
                     <button onClick={handleStart} className="btn-primary w-full py-3 text-lg shadow-lg">🎮 START GAME</button>
-                    <button onClick={() => setShowDailyCheckIn(true)} className="w-full py-2 rounded-lg border border-neon-blue/30 bg-neon-blue/10 text-neon-blue font-bold tracking-widest hover:bg-neon-blue/20 transition-all flex items-center justify-center gap-2 shadow-[0_0_10px_rgba(0,240,255,0.2)] animate-pulse">
+                    <button onClick={() => { setShowDailyCheckIn(true); SoundManager.play('click'); }} className="w-full py-2 rounded-lg border border-neon-blue/30 bg-neon-blue/10 text-neon-blue font-bold tracking-widest hover:bg-neon-blue/20 transition-all flex items-center justify-center gap-2 shadow-[0_0_10px_rgba(0,240,255,0.2)] animate-pulse">
                         <span>🎁</span> DAILY REWARDS
                     </button>
-                    <button onClick={() => setShowSkinSelector(true)} className="btn-secondary w-full py-2 border-neon-blue/30 text-neon-blue">🎨 SKINS & MISSIONS</button>
+                    <button onClick={() => { setShowSkinSelector(true); SoundManager.play('click'); }} className="btn-secondary w-full py-2 border-neon-blue/30 text-neon-blue">🎨 SKINS & MISSIONS</button>
                     <div className="flex gap-2">
-                      <button onClick={() => setShowTutorial(true)} className="btn-secondary flex-1 py-2 text-sm">❓ Help</button>
-                      <button onClick={() => setShowLeaderboard(true)} className="btn-secondary flex-1 py-2 text-sm">🏆 Ranks</button>
+                      <button onClick={() => { setShowTutorial(true); SoundManager.play('click'); }} className="btn-secondary flex-1 py-2 text-sm">❓ Help</button>
+                      <button onClick={() => { setShowLeaderboard(true); SoundManager.play('click'); }} className="btn-secondary flex-1 py-2 text-sm">🏆 Ranks</button>
                     </div>
                   </div>
               </>
@@ -455,12 +456,11 @@ function App() {
           </div>
         )}
 
-        {/* 🔥🔥🔥 GAME ACTIVE - NOWA STRUKTURA FLEX-COL 🔥🔥🔥 */}
+        {/* GAME ACTIVE */}
         {(isPlaying || gameOver) && (
           <div className="h-[100dvh] w-full flex flex-col items-center bg-[#0A0E27]" 
                onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
             
-            {/* 1. HUD GÓRNY (Flex Item) */}
             <HUD 
               score={score} applesCollected={applesCollected} 
               isPaused={isPaused} onPause={togglePause} 
@@ -468,17 +468,13 @@ function App() {
               gameMode={gameMode} timeLeft={timeLeft} 
             />
 
-            {/* 2. COMBO / POWERUPS (Flex Item) */}
             <ActiveEffects combo={combo} activePowerUps={activePowerUps} />
 
-            {/* 3. GAME STAGE (Flex: 1 - zajmuje resztę) */}
             <div className="flex-1 w-full flex items-center justify-center relative overflow-hidden">
-                {/* Tło / Cząsteczki */}
                 <div className="absolute inset-0 z-0">
                   <Particles ref={particlesRef} />
                 </div>
 
-                {/* PLANSZA GRY */}
                 <div className="relative z-10">
                    <GameBoard 
                      snake={snake} food={food} powerUp={gamePowerUpItem} gridSize={GRID_SIZE} cellSize={cellSize}
@@ -487,19 +483,17 @@ function App() {
                    />
                 </div>
 
-                {/* 🔥 MODAL PAUZY - TYLKO TUTAJ (Overlay na Stage) 🔥 */}
                 {isPaused && !gameOver && (
                   <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn">
-                     <div className="text-center p-6 glass rounded-xl border border-white/20 shadow-xl min-w-[200px]">
-                       <h2 className="text-3xl font-bold mb-6 text-neon-blue tracking-widest">PAUSED</h2>
-                       <button onClick={togglePause} className="btn-primary w-full py-3 mb-3">RESUME</button>
-                       <button onClick={() => { setIsPlaying(false); setIsPaused(false); resetGame(); }} className="btn-secondary w-full py-3">QUIT</button>
-                     </div>
-                  </div>
+                      <div className="text-center p-6 glass rounded-xl border border-white/20 shadow-xl min-w-[200px]">
+                        <h2 className="text-3xl font-bold mb-6 text-neon-blue tracking-widest">PAUSED</h2>
+                        <button onClick={togglePause} className="btn-primary w-full py-3 mb-3">RESUME</button>
+                        <button onClick={() => { setIsPlaying(false); setIsPaused(false); resetGame(); SoundManager.stopMusic(); }} className="btn-secondary w-full py-3">QUIT</button>
+                      </div>
+                   </div>
                 )}
             </div>
 
-            {/* 4. D-PAD (Flex Item - Na dole) */}
             <div className="shrink-0 w-full flex justify-center pb-[max(20px,env(safe-area-inset-bottom))] lg:hidden z-20">
                <VirtualDPad isVisible={!gameOver} onDirectionChange={changeDirection} size={Math.min(160, window.innerWidth * 0.45)} currentDirection={snakeDirection} />
             </div>
@@ -510,7 +504,7 @@ function App() {
         {gameOver && (
           <GameOver
             score={score} maxCombo={maxCombo} bestScore={bestScore} isNewRecord={score >= bestScore && score > 0}
-            onRestart={handleStart} onBackToMenu={() => { setIsPlaying(false); resetGame(); }}
+            onRestart={handleStart} onBackToMenu={() => { setIsPlaying(false); resetGame(); SoundManager.stopMusic(); }}
             onShare={() => { sdk.actions.openUrl(`https://warpcast.com/~/compose?text=${encodeURIComponent(`🐍 Scored ${score} in Snake! Skin: ${activeSkinObj.name}`)}`); }}
             applesCollected={applesCollected}
           />
@@ -523,7 +517,7 @@ function App() {
             walletAddress={address} 
             onClose={() => setShowDailyCheckIn(false)}
             onRewardClaimed={(amount) => {
-              if (soundEnabled) soundsRef.current['UNLOCK']?.play();
+              SoundManager.play('unlock'); // Używamy Managera
               setUnlockNotification([`Daily Reward: +${amount} 🍎`]);
               setPlayerStats(prev => ({ ...prev, totalApples: (prev.totalApples || 0) + amount }));
             }}
