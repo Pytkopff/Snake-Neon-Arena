@@ -512,11 +512,22 @@ function App() {
           </div>
         )}
 
-        {gameOver && (
+       {gameOver && (
           <GameOver
-            score={score} maxCombo={maxCombo} bestScore={bestScore} isNewRecord={score >= bestScore && score > 0}
-            onRestart={handleStart} onBackToMenu={() => { setIsPlaying(false); resetGame(); SoundManager.stopMusic(); }}
-            onShare={() => { sdk.actions.openUrl(`https://warpcast.com/~/compose?text=${encodeURIComponent(`🐍 Scored ${score} in Snake! Skin: ${activeSkinObj.name}`)}`); }}
+            score={score} 
+            maxCombo={maxCombo} 
+            bestScore={bestScore} 
+            isNewRecord={score >= bestScore && score > 0}
+            onRestart={handleStart} 
+            onBackToMenu={() => { setIsPlaying(false); resetGame(); SoundManager.stopMusic(); }}
+            
+            onShare={() => { 
+              const modeName = gameMode === 'walls' ? '⚡ Time Blitz' : gameMode === 'chill' ? '🧘 Zen Flow' : '🏆 Classic';      
+              const text = `🐍 Just scored ${score} points in Snake Neon Arena!\n\nMode: ${modeName}\nSkin: ${activeSkinObj.name}\n\nCan you beat my high score? 👇`;          
+              const gameUrl = "https://snake-neon-arena.vercel.app"; 
+              const shareUrl = `https://warpcast.com/~/compose?text=${encodeURIComponent(text)}&embeds[]=${encodeURIComponent(gameUrl)}`;            
+              sdk.actions.openUrl(shareUrl); 
+            }}            
             applesCollected={applesCollected}
           />
         )}
