@@ -20,43 +20,22 @@
     <meta property="og:type" content="website" />
     
     <meta property="fc:frame" content="vNext" />
-    <meta property="fc:frame:post_url" content="https://snake-neon-arena.vercel.app" />
     <meta property="fc:frame:image" content="https://snake-neon-arena.vercel.app/cover-final.jpg" />
     <meta property="fc:frame:image:aspect_ratio" content="1:1" />
-    
-    <meta property="fc:frame:button:1" content="Play Snake 🐍" />
-    <meta property="fc:frame:button:1:action" content="launch_frame" />
-    <meta property="fc:frame:button:1:target" content="https://snake-neon-arena.vercel.app" />
     
     <meta property="fc:frame:manifest" content="https://snake-neon-arena.vercel.app/.well-known/farcaster.json" />
 
     <style>
       html, body {
-        margin: 0;
-        padding: 0;
-        width: 100%;
-        height: 100%;
-        overflow: hidden;
+        margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
         background: linear-gradient(135deg, #0a0e27 0%, #1a103d 100%);
-        touch-action: none;
-        overscroll-behavior: none;
-        -webkit-user-select: none;
-        user-select: none;
+        touch-action: none; overscroll-behavior: none;
+        -webkit-user-select: none; user-select: none;
         -webkit-tap-highlight-color: transparent;
       }
-      #root {
-        width: 100%;
-        height: 100%;
-        position: relative;
-        overflow: hidden;
-      }
-      body {
-        opacity: 0;
-        animation: fadeIn 0.3s forwards;
-      }
-      @keyframes fadeIn {
-        to { opacity: 1; }
-      }
+      #root { width: 100%; height: 100%; position: relative; overflow: hidden; }
+      body { opacity: 0; animation: fadeIn 0.3s forwards; }
+      @keyframes fadeIn { to { opacity: 1; } }
     </style>
   </head>
 
@@ -64,16 +43,12 @@
     <script>
       let lastTouchEnd = 0;
       document.addEventListener('touchstart', function(event) {
-          if (event.touches.length > 1) {
-              event.preventDefault();
-          }
+          if (event.touches.length > 1) { event.preventDefault(); }
       }, { passive: false });
 
       document.addEventListener('touchend', function(event) {
           const now = (new Date()).getTime();
-          if (now - lastTouchEnd <= 300) {
-              event.preventDefault();
-          }
+          if (now - lastTouchEnd <= 300) { event.preventDefault(); }
           lastTouchEnd = now;
       }, { passive: false });
     </script>
