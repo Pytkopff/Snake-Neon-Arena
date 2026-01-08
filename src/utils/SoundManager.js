@@ -8,32 +8,28 @@ class SoundManager {
     this.isMuted = false;
     this.initialized = false;
     this.fadeTimer = null;
+    this.currentMusicId = null; // 🔥 Śledzimy ID konkretnego odtworzenia
   }
 
   init() {
     if (this.initialized) return;
 
-    // SFX
     this.sounds['eat'] = new Howl({ src: [SOUNDS.EAT], volume: 0.5 });
     this.sounds['powerup'] = new Howl({ src: [SOUNDS.POWERUP], volume: 0.7 });
     this.sounds['unlock'] = new Howl({ src: [SOUNDS.UNLOCK], volume: 0.6 });
     this.sounds['click'] = new Howl({ src: [SOUNDS.EAT], volume: 0.2, rate: 2.0 });
 
-    // MUSIC
-    // 🔥 ZMIANA: Startujemy od razu z normalną głośnością (0.3), nie od zera!
-    // html5: false jest kluczowe dla mobile (zapobiega lagom i problemom z streamowaniem)
     this.music = new Howl({
       src: [SOUNDS.CHILL_MUSIC],
       loop: true,
       volume: 0.3, 
-      html5: false,
+      html5: false, // Ważne: false dla pętli bez lagów
       preload: true,
     });
 
     this.initialized = true;
   }
 
-  // 🔥 NOWA METODA: Brutalne budzenie audio
   unlock() {
     if (Howler.ctx && Howler.ctx.state === 'suspended') {
       Howler.ctx.resume();
@@ -46,47 +42,39 @@ class SoundManager {
   }
 
   playMusic() {
-    // Zawsze próbujemy obudzić kontekst przed graniem
-    this.unlock();
+    this.unlock(); // Zawsze próbujemy obudzić audio
 
     if (this.isMuted || !this.music) return;
-    
-    // Czyścimy stare fadery
-    if (this.fadeTimer) clearTimeout(this.fadeTimer);
 
-    // Jeśli już gra, upewnij się tylko co do głośności
+    // 🔥🔥🔥 FIX NA OBCY DŹWIĘK 🔥🔥🔥
+    // Jeśli muzyka już gra, NIE RÓB NIC.
+    // To zapobiega nakładaniu się ścieżki z 'handleStart' i 'useEffect'.
     if (this.music.playing()) {
-       this.music.volume(0.3);
-       return;
+        return; 
     }
 
-    // 🔥 ZMIANA: Gramy natychmiast, bez fade-in.
-    // To zapobiega "gubieniu" dźwięku przez przeglądarki mobilne.
+    // Dla pewności: STOPUJEMY wszystko przed startem.
+    // To usuwa wszelkie "duchy" z poprzednich sesji.
+    this.music.stop(); 
+
     this.music.volume(0.3);
-    this.music.play();
+    this.currentMusicId = this.music.play();
   }
 
   stopMusic() {
-    if (!this.music || !this.music.playing()) return;
+    if (!this.music) return;
 
-    if (this.fadeTimer) clearTimeout(this.fadeTimer);
-
-    // Fade-out przy wyłączaniu jest bezpieczny
-    const currentVol = this.music.volume();
-    this.music.fade(currentVol, 0, 800);
-
-    this.fadeTimer = setTimeout(() => {
-      this.music.pause();
-    }, 800);
+    // Natychmiastowe zatrzymanie bez fade-out (bezpieczniejsze przy glitchach)
+    this.music.stop();
   }
 
   setMute(muted) {
     this.isMuted = muted;
     Howler.mute(muted);
     
-    // Jeśli odmutujemy, a powinniśmy grać - przywróć głośność
-    if (!muted && this.music && this.music.playing()) {
-        this.music.fade(0, 0.3, 500);
+    // Jeśli odmutujemy, a gra trwa - wznów muzykę
+    if (!muted && this.music && !this.music.playing()) {
+        this.playMusic();
     }
   }
 }
