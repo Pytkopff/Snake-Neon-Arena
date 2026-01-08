@@ -2,14 +2,13 @@
 
 import DailyCheckIn from './components/DailyCheckIn';
 import { useEffect, useState, useRef } from 'react';
-// import { Howl } from 'howler'; <--- USUŃ TO
 import sdk from '@farcaster/frame-sdk';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount } from 'wagmi';
 
 import { useSnakeGame } from './hooks/useSnakeGame';
-import { GRID_SIZE, SKINS, MISSIONS } from './utils/constants'; // USUŃ SOUNDS z importu, jest już w Managerze
+import { GRID_SIZE, SKINS, MISSIONS } from './utils/constants';
 import {
   getBestScore, updatePlayerStats, checkUnlocks, getUnlockedSkins,
   getSelectedSkin, setSelectedSkin, getPlayerStats, syncProfile
@@ -60,23 +59,24 @@ function App() {
     } catch (e) { return []; }
   });
 
-  // --- 🔥 INIT AUDIO ---
+  // ============================================
+  // 🔥 SEKCJA 1: Zarządzanie Stanem Muzyki (Efekt)
+  // ============================================
   useEffect(() => {
-    SoundManager.init(); // Inicjalizujemy dźwięki RAZ
-  }, []);
-
-  // --- 🔥 MUSIC CONTROL (Zastąpiony stary useEffect) ---
-  useEffect(() => {
-    // Synchronizujemy stan wyciszenia
+    // Inicjalizacja jednorazowa
+    SoundManager.init();
     SoundManager.setMute(!soundEnabled);
 
+    // Obliczamy intencję: Czy muzyka powinna grać?
     const shouldPlayMusic = isPlaying && gameMode === 'chill' && !isPaused;
 
-    if (shouldPlayMusic) {
-      SoundManager.playMusic();
-    } else {
+    // ✅ Używamy nowego API opartego na intencjach
+    SoundManager.setMusicIntent(shouldPlayMusic);
+
+    // Cleanup przy odmontowaniu
+    return () => {
       SoundManager.stopMusic();
-    }
+    };
   }, [isPlaying, gameMode, soundEnabled, isPaused]);
 
 
@@ -86,7 +86,6 @@ function App() {
       if (address) {
         const lastAddress = localStorage.getItem('snake_last_wallet');
         if (lastAddress && lastAddress !== address) {
-           // ... (czyszczenie local storage) ...
            ['snake_unlocked_skins', 'snake_total_apples', 'snake_total_games',
             'snake_best_score', 'snake_best_score_walls', 'snake_best_score_chill'
            ].forEach(k => localStorage.removeItem(k));
@@ -136,7 +135,7 @@ function App() {
   const prevFoodRef = useRef(food);
   const prevPowerUpsLengthRef = useRef(activePowerUps.length);
 
-  // --- 🔥 FX & Sound Triggers (Zaktualizowane) ---
+  // --- FX & Sound Triggers ---
   useEffect(() => {
     if (!isPlaying) return;
     
@@ -144,13 +143,13 @@ function App() {
       if (particlesRef.current && prevFoodRef.current) {
         particlesRef.current.explode(prevFoodRef.current.x, prevFoodRef.current.y, '#ff3333');
       }
-      SoundManager.play('eat'); // Używamy Managera
+      SoundManager.play('eat');
     }
 
     if (activePowerUps.length > 0 && activePowerUps.length > prevPowerUpsLengthRef.current) {
       const newEffect = activePowerUps[activePowerUps.length - 1];
       if (newEffect && newEffect.id !== 'ghost') {
-        SoundManager.play('powerup'); // Używamy Managera
+        SoundManager.play('powerup');
       }
     }
 
@@ -189,7 +188,7 @@ function App() {
         if (newUnlocks.length > 0) {
           const updatedSkins = await getUnlockedSkins(address);
           setUnlockedSkins(updatedSkins);
-          SoundManager.play('unlock'); // Używamy Managera
+          SoundManager.play('unlock');
           setUnlockNotification(newUnlocks);
         }
         if (score > bestScore) setBestScore(score);
@@ -206,23 +205,37 @@ function App() {
     }
   }, [unlockNotification]);
 
-  // --- Controls ---
+  // ============================================
+  // 🔥 SEKCJA 2: Zmodyfikowana funkcja START
+  // ============================================
   const handleStart = () => {
-    SoundManager.play('click'); 
-    SoundManager.unlock();
-   if (gameMode === 'chill' && soundEnabled) {
-       SoundManager.playMusic(true);
-    } else {
-       SoundManager.stopMusic();
+    // ✅ KROK 1: Wywołujemy to PIERWSZE, synchronicznie w handlerze kliknięcia
+    if (gameMode === 'chill') {
+      SoundManager.startMusicOnUserGesture();
     }
 
+    SoundManager.play('click'); // To też pomaga odblokować audio
+    
+    // Reszta logiki
     setIsPlaying(true);
     setIsPaused(false);
     setNotifiedMissions([]);
     startGame(gameMode);
   };
 
-  const togglePause = () => setIsPaused(!isPaused);
+  // ============================================
+  // 🔥 SEKCJA 3: Zmodyfikowana Pauza/Wznowienie
+  // ============================================
+  const togglePause = () => {
+    if (isPaused) {
+       // Wznawianie gry - też traktujemy jako gest użytkownika
+       if (gameMode === 'chill') {
+          SoundManager.startMusicOnUserGesture();
+       }
+       SoundManager.play('click');
+    }
+    setIsPaused(!isPaused);
+  };
 
   // Keyboard
   useEffect(() => {
@@ -240,7 +253,7 @@ function App() {
     return () => window.removeEventListener('keydown', handleKey);
   }, [isPlaying, isPaused, changeDirection]);
 
-  // Touch handlers ... (bez zmian)
+  // Touch handlers
   const touchStart = useRef(null);
   const touchEnd = useRef(null);
   const onTouchStart = (e) => { touchEnd.current = null; touchStart.current = { x: e.targetTouches[0].clientX, y: e.targetTouches[0].clientY }; };
@@ -297,13 +310,13 @@ function App() {
         localStorage.setItem('snake_notified_missions', JSON.stringify(updatedNotified));
         
         setUnlockNotification([rewardText]);
-        SoundManager.play('unlock'); // Używamy Managera
+        SoundManager.play('unlock');
         setNotifiedMissions(updatedNotified);
       }
     });
   }, [score, applesCollected, isPlaying, playerStats, unlockedSkins, gameMode]);
 
-  // Responsive Grid & Render ... (Reszta bez zmian, tylko sprawdź użycie soundEnabled w HUD)
+  // Responsive Grid
   const getCellSize = () => {
     const w = window.innerWidth; 
     const h = window.innerHeight; 
@@ -339,7 +352,6 @@ function App() {
       
       {/* DESKTOP LEFT PANEL */}
       <div className="hidden lg:flex flex-col justify-center gap-6 w-72 h-[80vh] p-6 glass rounded-l-2xl border-r-0 border-white/10 z-10 transition-all hover:translate-x-1">
-        {/* ... (Bez zmian) ... */}
          <div className="text-neon-blue font-bold tracking-widest text-sm mb-2">YOUR CAREER</div>
         <div className="bg-black/30 p-4 rounded-xl border border-white/5 space-y-4">
            <div><div className="text-xs text-gray-400">Total Apples</div><div className="text-2xl font-bold text-red-400">{playerStats.totalApples} 🍎</div></div>
@@ -382,7 +394,6 @@ function App() {
 
             <div className="mb-4 flex justify-center shrink-0">
               <ConnectButton.Custom>
-                {/* ... Connect Button Logic (bez zmian) ... */}
                 {({ account, chain, openAccountModal, openChainModal, openConnectModal, authenticationStatus, mounted }) => {
                   const ready = mounted && authenticationStatus !== 'loading';
                   const connected = ready && account && chain && (!authenticationStatus || authenticationStatus === 'authenticated');
@@ -411,7 +422,7 @@ function App() {
                 onSelectSkin={(id) => { 
                    setCurrentSkinId(id); 
                    setSelectedSkin(id); 
-                   SoundManager.play('click'); // Click sound
+                   SoundManager.play('click'); 
                 }}
               />
             ) : (
@@ -517,7 +528,7 @@ function App() {
             walletAddress={address} 
             onClose={() => setShowDailyCheckIn(false)}
             onRewardClaimed={(amount) => {
-              SoundManager.play('unlock'); // Używamy Managera
+              SoundManager.play('unlock');
               setUnlockNotification([`Daily Reward: +${amount} 🍎`]);
               setPlayerStats(prev => ({ ...prev, totalApples: (prev.totalApples || 0) + amount }));
             }}
