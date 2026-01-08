@@ -211,9 +211,9 @@ function App() {
     SoundManager.play('click'); 
     SoundManager.unlock();
    if (gameMode === 'chill' && soundEnabled) {
-       SoundManager.playMusic();
+       SoundManager.playMusic(true);
     } else {
-      SoundManager.stopMusic();
+       SoundManager.stopMusic();
     }
 
     setIsPlaying(true);
