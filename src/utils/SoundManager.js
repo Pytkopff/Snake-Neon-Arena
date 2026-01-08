@@ -8,11 +8,10 @@ class SoundManager {
     this.isMuted = false;
     this.initialized = false;
     
-    // 🔥 MASZYNA STANÓW: Oddzielamy zamiar (shouldPlay) od rzeczywistości (isPlaying)
     this.musicState = {
-      shouldPlay: false,  // Czy logika gry chce muzyki?
-      isPlaying: false,   // Czy muzyka faktycznie leci?
-      pendingPlay: false  // Czy czekamy na odblokowanie audio?
+      shouldPlay: false,  // Intencja (czy gra ma grać?)
+      isPlaying: false,   // Rzeczywistość (czy słychać?)
+      pendingPlay: false  // Czy czekamy na unlock?
     };
   }
 
@@ -25,16 +24,20 @@ class SoundManager {
     this.sounds['unlock'] = new Howl({ src: [SOUNDS.UNLOCK], volume: 0.6 });
     this.sounds['click'] = new Howl({ src: [SOUNDS.EAT], volume: 0.2, rate: 2.0 });
 
-    // MUSIC - Ustawienia pod Mobile
+    // MUSIC
     this.music = new Howl({
       src: [SOUNDS.CHILL_MUSIC],
       loop: true,
       volume: 0.3,
-      html5: true,  // ✅ KLUCZOWE DLA MOBILE: Używa natywnego <audio>, mniej lagów
-      preload: 'metadata', // Ładujemy tylko metadane na start
+      html5: true,  // ✅ Kluczowe dla mobile
+      preload: 'metadata',
       onplay: () => {
         this.musicState.isPlaying = true;
         this.musicState.pendingPlay = false;
+      },
+      // 🔥 NOWOŚĆ: Obsługa pauzy
+      onpause: () => {
+        this.musicState.isPlaying = false;
       },
       onstop: () => {
         this.musicState.isPlaying = false;
@@ -48,7 +51,6 @@ class SoundManager {
       },
       onplayerror: (id, err) => {
         console.error('Music play error:', err);
-        // Automatyczna próba naprawy po odblokowaniu (częste na iOS)
         this.music.once('unlock', () => {
           if (this.musicState.shouldPlay) {
             this.music.play();
@@ -60,12 +62,9 @@ class SoundManager {
     this.initialized = true;
   }
 
-  // ✅ METODA KRYTYCZNA: Wywoływana przy kliknięciu, żeby odblokować audio
   unlockAudioContext() {
     if (Howler.ctx && Howler.ctx.state === 'suspended') {
       Howler.ctx.resume().then(() => {
-        // console.log('Audio Context unlocked'); // Debug
-        // Jeśli mieliśmy zamiar grać, a czekaliśmy na unlock - GRAJ TERAZ
         if (this.musicState.pendingPlay && this.musicState.shouldPlay) {
           this._attemptMusicPlay();
         }
@@ -77,39 +76,36 @@ class SoundManager {
 
   play(id) {
     if (this.isMuted || !this.sounds[id]) return;
-    
-    // SFX też korzystają z odblokowania przy pierwszym kliknięciu
     this.unlockAudioContext();
     this.sounds[id].play();
   }
 
-  // ✅ METODA WEWNĘTRZNA: Faktyczna logika odpalania muzyki
+  // ✅ METODA WEWNĘTRZNA
   _attemptMusicPlay() {
     if (!this.music || this.isMuted) {
       this.musicState.pendingPlay = false;
       return;
     }
 
-    // Jeśli już gra, oznaczamy stan i wychodzimy (nie dublujemy!)
+    // Jeśli już gra, nic nie rób
     if (this.music.playing()) {
       this.musicState.isPlaying = true;
       this.musicState.pendingPlay = false;
       return;
     }
 
-    // Sprawdzamy czy AudioContext jest gotowy
     if (Howler.ctx && Howler.ctx.state === 'suspended') {
       this.musicState.pendingPlay = true;
-      return; // Spróbujemy ponownie po unlocku
+      return;
     }
 
-    // Czyścimy stan i gramy
-    this.music.stop();
+    // 🔥 ZMIANA: Usunęliśmy 'this.music.stop()'.
+    // Dzięki temu, jeśli muzyka była zapauzowana, ruszy dalej od tego samego momentu.
+    // Jeśli była zatrzymana całkowicie, ruszy od zera.
     this.music.volume(0.3);
     this.music.play();
   }
 
-  // ✅ PUBLICZNE API: Ustawiamy ZAMIAR (używane w useEffect)
   setMusicIntent(shouldPlay) {
     this.musicState.shouldPlay = shouldPlay;
 
@@ -120,14 +116,9 @@ class SoundManager {
     }
   }
 
-  // ✅ PUBLICZNE API: Wymuś start przy kliknięciu (używane w handleStart)
   startMusicOnUserGesture() {
-    // TO MUSI BYĆ WYWOŁANE SYNCHRONICZNIE PRZY KLIKNIĘCIU
     this.unlockAudioContext();
-    
     this.musicState.shouldPlay = true;
-    
-    // Dajemy malutki timeout, żeby unlock zdążył zadziałać
     setTimeout(() => {
       this._attemptMusicPlay();
     }, 50);
@@ -140,7 +131,8 @@ class SoundManager {
     this.musicState.pendingPlay = false;
     
     if (this.music.playing()) {
-      this.music.stop();
+      // 🔥 ZMIANA: Zamiast resetować (stop), tylko pauzujemy (pause).
+      this.music.pause();
     }
   }
 
@@ -148,7 +140,6 @@ class SoundManager {
     this.isMuted = muted;
     Howler.mute(muted);
     
-    // Jeśli odmutujemy, a muzyka miała grać - wznów ją
     if (!muted && this.musicState.shouldPlay && !this.music.playing()) {
       this._attemptMusicPlay();
     }
