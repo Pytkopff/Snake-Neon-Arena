@@ -7,7 +7,7 @@ class SoundManager {
     this.music = null;
     this.isMuted = false;
     this.initialized = false;
-    
+    this.lastPlay = {};
     // 🔥 NOWOŚĆ: Magazyn czasu dla Debounce'a
     this.lastPlayTime = {};
 
@@ -23,30 +23,10 @@ class SoundManager {
 
     // SFX - ZMIANY TUTAJ (dodano pool: 1)
     // pool: 1 sprawia, że Howler nie może grać dwóch tych samych dźwięków naraz
-    this.sounds['eat'] = new Howl({ 
-      src: [SOUNDS.EAT], 
-      volume: 0.5, 
-      pool: 1  // 🔥 FIX 
-    });
-    
-    this.sounds['powerup'] = new Howl({ 
-      src: [SOUNDS.POWERUP], 
-      volume: 0.7, 
-      pool: 1  // 🔥 FIX
-    });
-    
-    this.sounds['unlock'] = new Howl({ 
-      src: [SOUNDS.UNLOCK], 
-      volume: 0.6, 
-      pool: 1  // 🔥 FIX
-    });
-    
-    this.sounds['click'] = new Howl({ 
-      src: [SOUNDS.EAT], 
-      volume: 0.2, 
-      rate: 2.0, 
-      pool: 1  // 🔥 FIX (Kluczowe przy zmianie rate!)
-    });
+    this.sounds['eat'] = new Howl({ src: [SOUNDS.EAT], volume: 0.5, pool: 1 });
+    this.sounds['powerup'] = new Howl({ src: [SOUNDS.POWERUP], volume: 0.6, pool: 1 });
+    this.sounds['unlock'] = new Howl({ src: [SOUNDS.UNLOCK], volume: 0.6, pool: 1 });
+    this.sounds['click'] = new Howl({ src: [SOUNDS.EAT], volume: 0.2, rate: 2.0, pool: 1 });
 
     // MUSIC (Bez zmian, tu logika jest dobra)
     this.music = new Howl({
@@ -99,27 +79,19 @@ class SoundManager {
 
   // 🔥 CAŁKOWICIE NOWA METODA PLAY (Fix Dźwięku Ducha)
   play(id) {
-    if (this.isMuted || !this.sounds[id]) return;
+  if (this.isMuted || !this.sounds[id]) return;
 
-    // 1. DEBOUNCE: Jeśli minęło mniej niż 50ms od ostatniego razu, ignoruj.
-    // To zapobiega sytuacji, gdy w jednej klatce wywołujesz dźwięk 3 razy.
-    const now = Date.now();
-    const lastTime = this.lastPlayTime[id] || 0;
-    
-    if (now - lastTime < 50) {
-        return; 
-    }
-    
-    // Zapisz nowy czas
-    this.lastPlayTime[id] = now;
+  const now = performance.now();
+  // Blokada: jeśli ten sam dźwięk chce zagrać szybciej niż co 60ms - ignoruj
+  if (this.lastPlay[id] && now - this.lastPlay[id] < 60) return;
 
-    this.unlockAudioContext();
-
-    // 2. STOP & PLAY: Zatrzymaj poprzedni dźwięk, żeby wyczyścić bufor.
-    // Dzięki temu mamy czysty "klik", a nie nakładające się echa.
-    this.sounds[id].stop(); 
-    this.sounds[id].play();
-  }
+  this.lastPlay[id] = now;
+  this.unlockAudioContext();
+  
+  // Opcjonalnie dodaj stop(), aby uniknąć nakładania się ogonów dźwięku
+  this.sounds[id].stop(); 
+  this.sounds[id].play();
+}
 
   // ✅ METODA WEWNĘTRZNA (Bez zmian)
   _attemptMusicPlay() {

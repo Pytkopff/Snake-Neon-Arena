@@ -188,7 +188,7 @@ function App() {
         if (newUnlocks.length > 0) {
           const updatedSkins = await getUnlockedSkins(address);
           setUnlockedSkins(updatedSkins);
-          SoundManager.play('unlock');
+          
           setUnlockNotification(newUnlocks);
         }
         if (score > bestScore) setBestScore(score);
