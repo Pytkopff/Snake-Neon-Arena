@@ -539,7 +539,7 @@ function App() {
             walletAddress={address} 
             onClose={() => setShowDailyCheckIn(false)}
             onRewardClaimed={(amount) => {
-              SoundManager.play('unlock');
+              
               setUnlockNotification([`Daily Reward: +${amount} 🍎`]);
               setPlayerStats(prev => ({ ...prev, totalApples: (prev.totalApples || 0) + amount }));
             }}

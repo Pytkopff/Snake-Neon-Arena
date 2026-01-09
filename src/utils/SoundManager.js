@@ -83,7 +83,7 @@ class SoundManager {
 
   const now = performance.now();
   // Blokada: jeśli ten sam dźwięk chce zagrać szybciej niż co 60ms - ignoruj
-  if (this.lastPlay[id] && now - this.lastPlay[id] < 60) return;
+  if (this.lastPlay[id] && now - this.lastPlay[id] < 100) return;
 
   this.lastPlay[id] = now;
   this.unlockAudioContext();
