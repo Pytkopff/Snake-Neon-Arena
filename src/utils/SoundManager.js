@@ -7,28 +7,28 @@ class SoundManager {
     this.music = null;
     this.isMuted = false;
     this.initialized = false;
+    
     this.lastPlay = {};
-    // 🔥 NOWOŚĆ: Magazyn czasu dla Debounce'a
-    this.lastPlayTime = {};
+    // 🔥 NOWOŚĆ: Globalny bezpiecznik klatkowy
+    this.lastAnySoundTime = 0;
 
     this.musicState = {
-      shouldPlay: false,  // Intencja (czy gra ma grać?)
-      isPlaying: false,   // Rzeczywistość (czy słychać?)
-      pendingPlay: false  // Czy czekamy na unlock?
+      shouldPlay: false,
+      isPlaying: false,
+      pendingPlay: false
     };
   }
 
   init() {
     if (this.initialized) return;
 
-    // SFX - ZMIANY TUTAJ (dodano pool: 1)
-    // pool: 1 sprawia, że Howler nie może grać dwóch tych samych dźwięków naraz
+    // SFX - Konfiguracja z pool: 1 (limit instancji na poziomie biblioteki)
     this.sounds['eat'] = new Howl({ src: [SOUNDS.EAT], volume: 0.5, pool: 1 });
     this.sounds['powerup'] = new Howl({ src: [SOUNDS.POWERUP], volume: 0.6, pool: 1 });
     this.sounds['unlock'] = new Howl({ src: [SOUNDS.UNLOCK], volume: 0.6, pool: 1 });
     this.sounds['click'] = new Howl({ src: [SOUNDS.EAT], volume: 0.2, rate: 2.0, pool: 1 });
 
-    // MUSIC (Bez zmian, tu logika jest dobra)
+    // MUSIC
     this.music = new Howl({
       src: [SOUNDS.CHILL_MUSIC],
       loop: true,
@@ -77,23 +77,32 @@ class SoundManager {
     }
   }
 
-  // 🔥 CAŁKOWICIE NOWA METODA PLAY (Fix Dźwięku Ducha)
+  // 🔥 PANCERNA METODA PLAY (Z globalną i lokalną blokadą)
   play(id) {
-  if (this.isMuted || !this.sounds[id]) return;
+    if (this.isMuted || !this.sounds[id]) return;
 
-  const now = performance.now();
-  // Blokada: jeśli ten sam dźwięk chce zagrać szybciej niż co 60ms - ignoruj
-  if (this.lastPlay[id] && now - this.lastPlay[id] < 100) return;
+    const now = performance.now();
 
-  this.lastPlay[id] = now;
-  this.unlockAudioContext();
-  
-  // Opcjonalnie dodaj stop(), aby uniknąć nakładania się ogonów dźwięku
-  this.sounds[id].stop(); 
-  this.sounds[id].play();
-}
+    // 1. BLOKADA GLOBALNA: Żadne dwa dźwięki nie mogą zagrać szybciej niż co 40ms
+    // Zapobiega to nakładaniu się fal dźwiękowych przy jednoczesnych eventach.
+    if (now - this.lastAnySoundTime < 40) return;
 
-  // ✅ METODA WEWNĘTRZNA (Bez zmian)
+    // 2. BLOKADA LOKALNA (ID): Specyficzne limity dla konkretnych dźwięków
+    // Dla 'unlock' (misje) dajemy 150ms, dla reszty 100ms zgodnie z planem.
+    const cooldown = (id === 'unlock') ? 150 : 100;
+    if (this.lastPlay[id] && now - this.lastPlay[id] < cooldown) return;
+
+    // Rejestracja czasu odtworzenia
+    this.lastAnySoundTime = now;
+    this.lastPlay[id] = now;
+
+    this.unlockAudioContext();
+    
+    // Stop & Play: Czyścimy bufor danej instancji przed ponownym startem
+    this.sounds[id].stop(); 
+    this.sounds[id].play();
+  }
+
   _attemptMusicPlay() {
     if (!this.music || this.isMuted) {
       this.musicState.pendingPlay = false;

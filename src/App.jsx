@@ -310,7 +310,7 @@ function App() {
         localStorage.setItem('snake_notified_missions', JSON.stringify(updatedNotified));
         
         setUnlockNotification([rewardText]);
-        SoundManager.play('unlock');
+       
         setNotifiedMissions(updatedNotified);
       }
     });
