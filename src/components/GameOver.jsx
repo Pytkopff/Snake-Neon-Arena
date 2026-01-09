@@ -32,12 +32,14 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
 
   // 🔥 FIX 2: Timer odblokowujący przyciski (1.5 sekundy opóźnienia)
   useEffect(() => {
+    setCanInteract(false);
     const timer = setTimeout(() => {
       setCanInteract(true);
     }, 1500); // 1500ms czasu na "ochłonięcie"
 
     return () => clearTimeout(timer);
-  }, []);
+    }, [score]);
+  
 
   // 2. OBLICZENIA PASKA "CHASE"
   const progressToBest = bestScore > 0 ? Math.min(100, (score / bestScore) * 100) : 100;
