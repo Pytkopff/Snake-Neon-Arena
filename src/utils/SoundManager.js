@@ -8,6 +8,9 @@ class SoundManager {
     this.isMuted = false;
     this.initialized = false;
     
+    // 🔥 NOWOŚĆ: Magazyn czasu dla Debounce'a
+    this.lastPlayTime = {};
+
     this.musicState = {
       shouldPlay: false,  // Intencja (czy gra ma grać?)
       isPlaying: false,   // Rzeczywistość (czy słychać?)
@@ -18,24 +21,44 @@ class SoundManager {
   init() {
     if (this.initialized) return;
 
-    // SFX
-    this.sounds['eat'] = new Howl({ src: [SOUNDS.EAT], volume: 0.5 });
-    this.sounds['powerup'] = new Howl({ src: [SOUNDS.POWERUP], volume: 0.7 });
-    this.sounds['unlock'] = new Howl({ src: [SOUNDS.UNLOCK], volume: 0.6 });
-    this.sounds['click'] = new Howl({ src: [SOUNDS.EAT], volume: 0.2, rate: 2.0 });
+    // SFX - ZMIANY TUTAJ (dodano pool: 1)
+    // pool: 1 sprawia, że Howler nie może grać dwóch tych samych dźwięków naraz
+    this.sounds['eat'] = new Howl({ 
+      src: [SOUNDS.EAT], 
+      volume: 0.5, 
+      pool: 1  // 🔥 FIX 
+    });
+    
+    this.sounds['powerup'] = new Howl({ 
+      src: [SOUNDS.POWERUP], 
+      volume: 0.7, 
+      pool: 1  // 🔥 FIX
+    });
+    
+    this.sounds['unlock'] = new Howl({ 
+      src: [SOUNDS.UNLOCK], 
+      volume: 0.6, 
+      pool: 1  // 🔥 FIX
+    });
+    
+    this.sounds['click'] = new Howl({ 
+      src: [SOUNDS.EAT], 
+      volume: 0.2, 
+      rate: 2.0, 
+      pool: 1  // 🔥 FIX (Kluczowe przy zmianie rate!)
+    });
 
-    // MUSIC
+    // MUSIC (Bez zmian, tu logika jest dobra)
     this.music = new Howl({
       src: [SOUNDS.CHILL_MUSIC],
       loop: true,
       volume: 0.3,
-      html5: true,  // ✅ Kluczowe dla mobile
+      html5: true,
       preload: 'metadata',
       onplay: () => {
         this.musicState.isPlaying = true;
         this.musicState.pendingPlay = false;
       },
-      // 🔥 NOWOŚĆ: Obsługa pauzy
       onpause: () => {
         this.musicState.isPlaying = false;
       },
@@ -74,20 +97,37 @@ class SoundManager {
     }
   }
 
+  // 🔥 CAŁKOWICIE NOWA METODA PLAY (Fix Dźwięku Ducha)
   play(id) {
     if (this.isMuted || !this.sounds[id]) return;
+
+    // 1. DEBOUNCE: Jeśli minęło mniej niż 50ms od ostatniego razu, ignoruj.
+    // To zapobiega sytuacji, gdy w jednej klatce wywołujesz dźwięk 3 razy.
+    const now = Date.now();
+    const lastTime = this.lastPlayTime[id] || 0;
+    
+    if (now - lastTime < 50) {
+        return; 
+    }
+    
+    // Zapisz nowy czas
+    this.lastPlayTime[id] = now;
+
     this.unlockAudioContext();
+
+    // 2. STOP & PLAY: Zatrzymaj poprzedni dźwięk, żeby wyczyścić bufor.
+    // Dzięki temu mamy czysty "klik", a nie nakładające się echa.
+    this.sounds[id].stop(); 
     this.sounds[id].play();
   }
 
-  // ✅ METODA WEWNĘTRZNA
+  // ✅ METODA WEWNĘTRZNA (Bez zmian)
   _attemptMusicPlay() {
     if (!this.music || this.isMuted) {
       this.musicState.pendingPlay = false;
       return;
     }
 
-    // Jeśli już gra, nic nie rób
     if (this.music.playing()) {
       this.musicState.isPlaying = true;
       this.musicState.pendingPlay = false;
@@ -99,9 +139,6 @@ class SoundManager {
       return;
     }
 
-    // 🔥 ZMIANA: Usunęliśmy 'this.music.stop()'.
-    // Dzięki temu, jeśli muzyka była zapauzowana, ruszy dalej od tego samego momentu.
-    // Jeśli była zatrzymana całkowicie, ruszy od zera.
     this.music.volume(0.3);
     this.music.play();
   }
@@ -131,7 +168,6 @@ class SoundManager {
     this.musicState.pendingPlay = false;
     
     if (this.music.playing()) {
-      // 🔥 ZMIANA: Zamiast resetować (stop), tylko pauzujemy (pause).
       this.music.pause();
     }
   }
