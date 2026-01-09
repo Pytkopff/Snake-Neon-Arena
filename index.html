@@ -3,15 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="/logo.png" />
-    
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     
     <title>Snake Neon Arena 🐍</title>
     <meta name="description" content="Play the classic Snake game in neon style on Base!" />
-    
     <meta name="theme-color" content="#0a0e27" />
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 
     <meta property="og:title" content="Snake Neon Arena 🐍" />
     <meta property="og:description" content="Play the classic Snake game in neon style on Base!" />
@@ -21,46 +17,28 @@
     <meta property="og:image:type" content="image/jpeg" />
     <meta property="og:url" content="https://snake-neon-arena.vercel.app" />
     <meta property="og:type" content="website" />
-    
-    <meta property="fc:frame" content="1" />
-    <meta property="fc:frame:image" content="https://snake-neon-arena.vercel.app/cover-final.jpg" />
-    <meta property="fc:frame:image:aspect_ratio" content="1:1" />
 
-    <meta property="fc:frame:button:1" content="Play Snake 🐍" />
-    <meta property="fc:frame:button:1:action" content="link" />
-    <meta property="fc:frame:button:1:target" content="https://snake-neon-arena.vercel.app" />
-
-    <meta property="fc:frame:manifest" content="https://snake-neon-arena.vercel.app/.well-known/farcaster.json" />
-
+    <meta name="fc:miniapp" content='{
+      "version": "1",
+      "imageUrl": "https://snake-neon-arena.vercel.app/cover-final.jpg",
+      "button": {
+        "title": "Play Snake 🐍",
+        "action": {
+          "type": "launch_frame",
+          "name": "Snake Neon Arena",
+          "url": "https://snake-neon-arena.vercel.app",
+          "splashImageUrl": "https://snake-neon-arena.vercel.app/cover-final.jpg",
+          "splashBackgroundColor": "#0a0e27"
+        }
+      }
+    }' />
 
     <style>
-      html, body {
-        margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden;
-        background: linear-gradient(135deg, #0a0e27 0%, #1a103d 100%);
-        touch-action: none; overscroll-behavior: none;
-        -webkit-user-select: none; user-select: none;
-        -webkit-tap-highlight-color: transparent;
-      }
-      #root { width: 100%; height: 100%; position: relative; overflow: hidden; }
-      body { opacity: 0; animation: fadeIn 0.3s forwards; }
-      @keyframes fadeIn { to { opacity: 1; } }
+      html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #0a0e27; }
+      #root { width: 100%; height: 100%; }
     </style>
   </head>
-
   <body>
-    <script>
-      let lastTouchEnd = 0;
-      document.addEventListener('touchstart', function(event) {
-          if (event.touches.length > 1) { event.preventDefault(); }
-      }, { passive: false });
-
-      document.addEventListener('touchend', function(event) {
-          const now = (new Date()).getTime();
-          if (now - lastTouchEnd <= 300) { event.preventDefault(); }
-          lastTouchEnd = now;
-      }, { passive: false });
-    </script>
-
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
