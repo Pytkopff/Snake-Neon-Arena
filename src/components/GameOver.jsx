@@ -3,9 +3,11 @@ import { useState, useEffect } from 'react';
 
 const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare, onBackToMenu, endReason, applesCollected }) => {
   const [displayScore, setDisplayScore] = useState(0);
+  
+  // 🔥 FIX 1: Stan blokady przycisków (Anti-Rage Click)
+  const [canInteract, setCanInteract] = useState(false);
 
   // 1. EFEKT KASYNA (Ticker)
-  // Wynik rośnie od 0 do końcowego w ciągu 1.5 sekundy
   useEffect(() => {
     let start = 0;
     const duration = 1500; 
@@ -28,7 +30,16 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
     return () => clearInterval(timer);
   }, [score]);
 
-  // 2. OBLICZENIA PASKA "CHASE" (Ile brakowało do rekordu?)
+  // 🔥 FIX 2: Timer odblokowujący przyciski (1.5 sekundy opóźnienia)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setCanInteract(true);
+    }, 1500); // 1500ms czasu na "ochłonięcie"
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  // 2. OBLICZENIA PASKA "CHASE"
   const progressToBest = bestScore > 0 ? Math.min(100, (score / bestScore) * 100) : 100;
   const missingPoints = bestScore - score;
 
@@ -112,14 +123,21 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
             <div className="text-[10px] text-gray-400 uppercase font-bold">Apples</div>
           </div>
           <div className="bg-white/5 p-3 rounded-xl border border-white/10">
-            {/* Używamy prawdziwego maxCombo z propsów, jeśli jest dostępny, inaczej fallback */}
             <div className="text-2xl font-bold text-yellow-400 drop-shadow-sm">x{maxCombo || 0}</div>
             <div className="text-[10px] text-gray-400 uppercase font-bold">Max Combo</div>
           </div>
         </div>
 
-        {/* --- PRZYCISKI --- */}
-        <div className="space-y-3 relative z-10">
+        {/* --- PRZYCISKI Z OCHRONĄ PRZED RAGE-CLICK --- */}
+        <div 
+            className="space-y-3 relative z-10"
+            style={{
+                opacity: canInteract ? 1 : 0,           // Niewidoczne -> Widoczne
+                pointerEvents: canInteract ? 'auto' : 'none', // Klikalne -> Nieklikalne
+                filter: canInteract ? 'none' : 'grayscale(100%)', // Opcjonalnie: Szare na start
+                transition: 'opacity 0.5s ease-in, filter 0.5s ease-in' // Płynne wejście
+            }}
+        >
           <button
             onClick={onRestart}
             className="w-full py-3 rounded-xl bg-neon-blue text-black font-black text-lg hover:scale-[1.02] active:scale-95 transition-all shadow-[0_0_20px_rgba(0,240,255,0.4)]"
