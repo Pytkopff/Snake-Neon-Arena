@@ -139,10 +139,9 @@ export const MISSIONS = [
   {
     id: 'm_godlike',
     title: 'GODLIKE',
-    desc: 'Score 1500 in Classic Mode',
-    type: 'score',
-    mode: 'classic',
-    target: 1500,
+    desc: 'Eat 2000 Apples (Total)',
+    type: 'apples',
+    target: 2000,
     rewardType: 'skin',
     rewardId: 'gold'
   },
@@ -164,7 +163,7 @@ export const SOUNDS = {
   EAT: 'https://commondatastorage.googleapis.com/codeskulptor-assets/week7-bounce.m4a',
   POWERUP: 'https://commondatastorage.googleapis.com/codeskulptor-assets/week7-brrring.m4a',
   GAMEOVER: 'https://commondatastorage.googleapis.com/codeskulptor-assets/sounddogs/explosion.mp3',
-  UNLOCK: 'https://commondatastorage.googleapis.com/codeskulptor-assets/sounddogs/soundtrack.mp3',
+  UNLOCK: 'https://commondatastorage.googleapis.com/codeskulptor-assets/week7-brrring.m4a', // Zmienione z soundtrack.mp3 na bardziej neonowy dźwięk
   COMBO: 'https://commondatastorage.googleapis.com/codeskulptor-assets/week7-brrring.m4a', // Tymczasowo to samo co powerup
 
   // Muzyka (Pixabay zazwyczaj nie blokuje, więc może zostać)

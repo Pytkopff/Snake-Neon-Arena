@@ -79,8 +79,48 @@ export const getPlayerStats = async (walletAddress) => {
 
   if (!walletAddress) return stats;
 
-  // 3. Logika Online (Supabase)
+  // 3. Logika Online (Supabase) - NOWY SYSTEM
   try {
+    // A. Próbujemy najpierw nowy system (player_profiles + game_sessions)
+    const { data: newProfile } = await supabase
+      .from('player_profiles')
+      .select('canonical_user_id')
+      .eq('wallet_address', walletAddress.toLowerCase())
+      .single();
+    
+    if (newProfile) {
+      console.log('📊 Found new profile:', newProfile);
+      
+      // Pobierz sumę jabłek z game_sessions
+      const { data: appleSumData } = await supabase
+        .from('game_sessions')
+        .select('apples_eaten')
+        .eq('user_id', newProfile.canonical_user_id);
+      
+      if (appleSumData && appleSumData.length > 0) {
+        const totalApplesFromDB = appleSumData.reduce((sum, row) => sum + (row.apples_eaten || 0), 0);
+        console.log('🍎 Total apples from game_sessions:', totalApplesFromDB);
+        
+        // Synchronizuj z localStorage
+        setStorageItem(STORAGE_KEYS.TOTAL_APPLES, totalApplesFromDB);
+        stats.totalApples = totalApplesFromDB;
+      }
+      
+      // Pobierz liczbę gier
+      const { count } = await supabase
+        .from('game_sessions')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', newProfile.canonical_user_id);
+      
+      if (count !== null) {
+        setStorageItem(STORAGE_KEYS.TOTAL_GAMES, count);
+        stats.totalGames = count;
+      }
+      
+      return stats;
+    }
+    
+    // B. Fallback: jeśli nie ma w nowym systemie, próbujemy starego (dla backward compatibility)
     const { data: profile } = await supabase.from('profiles').select('id').eq('wallet_address', walletAddress).single();
     if (!profile) return stats;
 
@@ -166,10 +206,50 @@ export const updatePlayerStats = async (applesInGame, score, walletAddress, mode
 export const unlockSkinOnServer = async (skinId, walletAddress) => {
   if (!walletAddress) return;
   try {
-    const { data: profile } = await supabase.from('profiles').select('id').eq('wallet_address', walletAddress).single();
-    if (!profile) return;
-    await supabase.from('unlocked_skins').insert([{ user_id: profile.id, skin_id: skinId }]);
-  } catch (err) {}
+    // Najpierw znajdź lub utwórz profil
+    let { data: profile } = await supabase.from('profiles').select('id').eq('wallet_address', walletAddress).single();
+    
+    // Jeśli nie ma profilu, utwórz go
+    if (!profile) {
+      const { data: newProfile, error: createError } = await supabase
+        .from('profiles')
+        .insert([{ wallet_address: walletAddress }])
+        .select()
+        .single();
+      
+      if (createError) {
+        console.error('Error creating profile for skin unlock:', createError);
+        return;
+      }
+      profile = newProfile;
+    }
+    
+    // Sprawdź czy skin już nie jest odblokowany (unikaj duplikatów)
+    const { data: existing } = await supabase
+      .from('unlocked_skins')
+      .select('id')
+      .eq('user_id', profile.id)
+      .eq('skin_id', skinId)
+      .single();
+    
+    if (existing) {
+      console.log(`Skin ${skinId} already unlocked for user ${profile.id}`);
+      return;
+    }
+    
+    // Odblokuj skin
+    const { error: insertError } = await supabase
+      .from('unlocked_skins')
+      .insert([{ user_id: profile.id, skin_id: skinId }]);
+    
+    if (insertError) {
+      console.error('Error unlocking skin:', insertError);
+    } else {
+      console.log(`✅ Skin ${skinId} unlocked successfully for user ${profile.id}`);
+    }
+  } catch (err) {
+    console.error('Error in unlockSkinOnServer:', err);
+  }
 };
 
 export const getUnlockedSkins = async (walletAddress) => {
@@ -445,6 +525,13 @@ export const saveGameSession = async (session) => {
     }
     
     console.log('✅ Game session saved to DB:', data);
+    
+    // 🍎 AKTUALIZUJ LOCALSTORAGE po zapisie (dla Daily Check-in i innych komponentów)
+    const currentApples = getStorageItem(STORAGE_KEYS.TOTAL_APPLES, 0);
+    const newTotal = currentApples + (applesEaten || 0);
+    setStorageItem(STORAGE_KEYS.TOTAL_APPLES, newTotal);
+    console.log('🍎 Updated localStorage apples:', currentApples, '->', newTotal);
+    
   } catch (error) {
     console.error('❌ saveGameSession error:', error);
   }
@@ -481,26 +568,13 @@ export const getDailyStatus = async (walletAddress) => {
     dayIndex: 0
   };
 
-  // 1. Obsługa GOŚCIA (LocalStorage)
-  if (!walletAddress) {
-    const local = getStorageItem('snake_daily_status', null);
-    if (local) {
-      status.streak = local.streak;
-      status.lastClaim = local.lastClaim;
-    }
-  } 
-  // 2. Obsługa ZALOGOWANEGO (Supabase)
-  else {
-    try {
-      const { data: profile } = await supabase.from('profiles').select('id').eq('wallet_address', walletAddress).single();
-      if (profile) {
-        const { data: stats } = await supabase.from('player_stats').select('current_streak, last_daily_claim').eq('user_id', profile.id).single();
-        if (stats) {
-          status.streak = stats.current_streak || 0;
-          status.lastClaim = stats.last_daily_claim;
-        }
-      }
-    } catch (e) { console.error("Daily sync error", e); }
+  // 🔥 NOWY SYSTEM: Używamy TYLKO localStorage dla Daily Check-in (dla wszystkich użytkowników)
+  // Streak jest lokalną funkcją i nie musi być w bazie danych
+  const local = getStorageItem('snake_daily_status', null);
+  if (local) {
+    status.streak = local.streak;
+    status.lastClaim = local.lastClaim;
+    console.log('📅 Daily status from localStorage:', local);
   }
 
   // 3. Logika czasu (Co wyświetlić?)
@@ -558,77 +632,65 @@ export const claimDaily = async (walletAddress) => {
     return { success: true, reward, newStreak };
   }
 
-  // B. ZALOGOWANY
-  try {
-    const { data: profile } = await supabase.from('profiles').select('id').eq('wallet_address', walletAddress).single();
-    if (!profile) return { success: false };
-
-    // 1. Sprawdź stan w bazie przed aktualizacją
-    const { data: stats } = await supabase.from('player_stats').select('current_streak, last_daily_claim').eq('user_id', profile.id).single();
-    
-    let newStreak = (stats.current_streak || 0) + 1;
-    
-    // Logika resetu (jeśli ktoś próbuje oszukać API i claimować po tygodniu bez naprawy)
-    const lastDate = stats.last_daily_claim ? new Date(stats.last_daily_claim) : null;
-    if (lastDate && !isYesterday(new Date(), lastDate) && !isSameDay(new Date(), lastDate)) {
-        newStreak = 1; // Brutalny reset
-    }
-
-    const rewardIndex = (newStreak - 1) % 7;
-    const reward = DAILY_REWARDS[rewardIndex];
-
-    // 2. Aktualizacja w bazie
-    await supabase.from('player_stats').update({
-      current_streak: newStreak,
-      last_daily_claim: today
-    }).eq('user_id', profile.id);
-
-    // 3. Dodanie jabłek (przez RPC, które już masz)
-    await supabase.rpc('increment_apples', { row_id: profile.id, quantity: reward });
-
-    return { success: true, reward, newStreak };
-
-  } catch (e) {
-    console.error(e);
-    return { success: false };
+  // B. ZALOGOWANY - NOWY SYSTEM: używamy tylko localStorage
+  // Streak jest lokalną funkcją, nie trzeba synchronizować z Supabase
+  const current = getStorageItem('snake_daily_status', { streak: 0 });
+  let newStreak = current.streak + 1;
+  
+  // Reset jeśli zerwany
+  const lastDate = current.lastClaim ? new Date(current.lastClaim) : null;
+  if (lastDate && !isYesterday(new Date(), lastDate) && !isSameDay(new Date(), lastDate)) {
+      newStreak = 1;
   }
+
+  const rewardIndex = (newStreak - 1) % 7;
+  const reward = DAILY_REWARDS[rewardIndex];
+
+  // Zapisz w localStorage
+  setStorageItem('snake_daily_status', { streak: newStreak, lastClaim: today });
+  
+  // Dodaj jabłka do localStorage
+  const currentApples = getStorageItem(STORAGE_KEYS.TOTAL_APPLES, 0);
+  setStorageItem(STORAGE_KEYS.TOTAL_APPLES, currentApples + reward);
+  console.log('🍎 Daily reward claimed:', reward, 'New total:', currentApples + reward);
+
+  return { success: true, reward, newStreak };
 };
 
 export const repairStreakWithApples = async (walletAddress) => {
     if (!walletAddress) return false; // Goście nie mogą naprawiać
 
-    try {
-        const { data: profile } = await supabase.from('profiles').select('id').eq('wallet_address', walletAddress).single();
-        if (!profile) return false;
-
-        // Wywołanie naszej NOWEJ funkcji SQL "repair_streak"
-        const { data: success, error } = await supabase.rpc('repair_streak', { 
-            row_user_id: profile.id, 
-            cost: 500 
-        });
-
-        if (error) throw error;
-        return success; // Zwraca true jeśli się udało, false jeśli brak środków
-
-    } catch (e) {
-        console.error("Repair failed:", e);
+    const cost = 500;
+    
+    // Sprawdź ile ma jabłek w localStorage
+    let currentApples = getStorageItem(STORAGE_KEYS.TOTAL_APPLES, 0);
+    console.log(`🍎 Daily Check-in: Repair attempt. User has: ${currentApples}, Need: ${cost}`);
+    
+    if (currentApples < cost) {
+        console.log(`🍎 Daily Check-in: Not enough apples to repair streak. User has: ${currentApples} Need: ${cost}`);
         return false;
     }
+
+    // Odejmij 500 jabłek
+    setStorageItem(STORAGE_KEYS.TOTAL_APPLES, currentApples - cost);
+    
+    // Napraw streak w localStorage (resetujemy lastClaim, żeby mógł teraz claimować)
+    const current = getStorageItem('snake_daily_status', { streak: 0 });
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    
+    setStorageItem('snake_daily_status', { 
+        streak: current.streak, // Zachowaj obecny streak
+        lastClaim: yesterday.toISOString() // Ustaw na "wczoraj", żeby dzisiaj mógł claimować
+    });
+    
+    console.log('✅ Streak repaired successfully! User can now claim today.');
+    return true;
 };
 
 export const resetStreakToZero = async (walletAddress) => {
     // Gracz poddał się i nie płaci. Resetujemy streak do 0.
-    if (!walletAddress) {
-        setStorageItem('snake_daily_status', { streak: 0, lastClaim: null });
-        return true;
-    }
-    
-    try {
-        const { data: profile } = await supabase.from('profiles').select('id').eq('wallet_address', walletAddress).single();
-        await supabase.from('player_stats').update({
-            current_streak: 0,
-            last_daily_claim: null 
-        }).eq('user_id', profile.id);
-        return true;
-    } catch(e) { return false; }
+    setStorageItem('snake_daily_status', { streak: 0, lastClaim: null });
+    console.log('🔄 Streak reset to 0');
+    return true;
 };

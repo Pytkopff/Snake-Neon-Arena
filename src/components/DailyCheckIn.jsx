@@ -19,11 +19,11 @@ const DailyCheckIn = ({ onClose, walletAddress, onRewardClaimed }) => {
     const s = await getDailyStatus(walletAddress);
     setStatus(s);
     
-    // Potrzebujemy stanu konta tylko jeśli streak jest zerwany (do sklepu)
-    if (s.isMissed) {
-        const stats = await getPlayerStats(walletAddress);
-        setUserApples(stats.totalApples);
-    }
+    // ZAWSZE pobieraj aktualny stan jabłek (nie tylko gdy isMissed)
+    const stats = await getPlayerStats(walletAddress);
+    setUserApples(stats.totalApples);
+    console.log('🍎 Daily Check-in: User has', stats.totalApples, 'apples');
+    
     setLoading(false);
   };
 
@@ -41,11 +41,16 @@ const DailyCheckIn = ({ onClose, walletAddress, onRewardClaimed }) => {
   const handleRepair = async () => {
     setClaiming(true);
     setErrorMsg('');
+    
+    console.log('🔧 Attempting to repair streak. User has:', userApples, 'apples');
+    
     const success = await repairStreakWithApples(walletAddress);
     
     if (success) {
+        console.log('✅ Streak repaired!');
         await loadData(); // Odświeżamy - teraz powinno być "canClaim: true"
     } else {
+        console.error('❌ Repair failed - not enough apples');
         setErrorMsg('Not enough apples! Need 500 🍎');
     }
     setClaiming(false);

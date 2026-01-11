@@ -219,9 +219,21 @@ function App() {
     if (gameOver) {
       setIsPlaying(false);
       const handleGameOver = async () => {
-        // Stary system (zachowany dla misji)
+        // 🔥 NOWY SYSTEM: Zapisz sesję do game_sessions NAJPIERW (żeby checkUnlocks widział nowe dane)
+        if (currentCanonicalId) {
+          await saveGameSession({
+            userId: currentCanonicalId,
+            mode: gameMode,
+            score: score,
+            applesEaten: applesCollected,
+          });
+        }
+
+        // Aktualizuj statystyki (teraz zawierają dane z game_sessions)
         const newStats = await updatePlayerStats(applesCollected, score, address, gameMode);
         setPlayerStats(newStats);
+        
+        // Sprawdź odblokowywanie skinów (z aktualnymi statystykami)
         const newUnlocks = await checkUnlocks(newStats, address);
         
         if (newUnlocks.length > 0) {
@@ -231,16 +243,6 @@ function App() {
           setUnlockNotification(newUnlocks);
         }
         if (score > bestScore) setBestScore(score);
-
-        // 🔥 NOWY SYSTEM: Zapisz sesję do game_sessions
-        if (currentCanonicalId) {
-          await saveGameSession({
-            userId: currentCanonicalId,
-            mode: gameMode,
-            score: score,
-            applesEaten: applesCollected,
-          });
-        }
       };
       handleGameOver();
     }
