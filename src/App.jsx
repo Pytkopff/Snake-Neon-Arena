@@ -1,5 +1,6 @@
 // src/App.jsx
 
+import { upsertPlayerProfile } from './utils/playerSync';
 import DailyCheckIn from './components/DailyCheckIn';
 import { useEffect, useState, useRef } from 'react';
 import sdk from '@farcaster/frame-sdk';
@@ -11,7 +12,8 @@ import { useSnakeGame } from './hooks/useSnakeGame';
 import { GRID_SIZE, SKINS, MISSIONS } from './utils/constants';
 import {
   getBestScore, updatePlayerStats, checkUnlocks, getUnlockedSkins,
-  getSelectedSkin, setSelectedSkin, getPlayerStats, syncProfile
+  getSelectedSkin, setSelectedSkin, getPlayerStats, syncProfile,
+  syncPlayerProfile, saveGameSession
 } from './utils/storage';
 
 // 🔥 IMPORTUJ MANAGERA
@@ -23,7 +25,7 @@ import ActiveEffects from './components/ActiveEffects';
 import VirtualDPad from './components/VirtualDPad';
 import GameOver from './components/GameOver';
 import Tutorial from './components/Tutorial';
-import Leaderboard from './components/Leaderboard';
+import GlobalLeaderboard from './components/GlobalLeaderboard';
 import SkinMissionsPanel from './components/SkinMissionsPanel';
 import Particles from './components/Particles';
 
@@ -47,6 +49,7 @@ function App() {
   const [playerStats, setPlayerStats] = useState({ totalApples: 0, totalGames: 0 });
   const [unlockedSkins, setUnlockedSkins] = useState(['default']);
   const [currentSkinId, setCurrentSkinId] = useState(getSelectedSkin());
+  const [currentCanonicalId, setCurrentCanonicalId] = useState(null);
 
   // Game State
   const [isPlaying, setIsPlaying] = useState(false);
@@ -81,48 +84,83 @@ function App() {
 
 
   // --- Profile & Storage Sync ---
-  useEffect(() => {
-    const initProfile = async () => {
-      if (address) {
-        const lastAddress = localStorage.getItem('snake_last_wallet');
-        if (lastAddress && lastAddress !== address) {
-           ['snake_unlocked_skins', 'snake_total_apples', 'snake_total_games',
-            'snake_best_score', 'snake_best_score_walls', 'snake_best_score_chill'
-           ].forEach(k => localStorage.removeItem(k));
-           
-           setIsPlaying(false);
-           setIsPaused(true);
-           setUnlockedSkins(['default']);
-           setPlayerStats({ totalApples: 0, totalGames: 0, bestScore: 0, bestScoreClassic: 0, bestScoreWalls: 0, bestScoreChill: 0 });
-        }
-        localStorage.setItem('snake_last_wallet', address);
-        await syncProfile(address);
+ useEffect(() => {
+  const initProfile = async () => {
+    // Stary system (zachowany dla misji i daily rewards)
+    if (address) {
+      const lastAddress = localStorage.getItem('snake_last_wallet');
+      if (lastAddress && lastAddress !== address) {
+        ['snake_unlocked_skins', 'snake_total_apples', 'snake_total_games',
+         'snake_best_score', 'snake_best_score_walls', 'snake_best_score_chill'
+        ].forEach(k => localStorage.removeItem(k));
+        
+        setIsPlaying(false);
+        setIsPaused(true);
+        setUnlockedSkins(['default']);
+        setPlayerStats({ totalApples: 0, totalGames: 0, bestScore: 0, bestScoreClassic: 0, bestScoreWalls: 0, bestScoreChill: 0 });
       }
+      localStorage.setItem('snake_last_wallet', address);
+      
+      // 1. Stara synchronizacja (zostawiamy dla bezpieczeństwa)
+      await syncProfile(address);
 
-      const stats = await getPlayerStats(address);
-      setPlayerStats(stats);
-      const skins = await getUnlockedSkins(address);
-      setUnlockedSkins(skins);
-      setBestScore(getBestScore(gameMode));
-    };
-    initProfile();
-  }, [isConnected, address, gameMode]);
+      // 2. Stara synchronizacja V2 (playerSync)
+      await upsertPlayerProfile({
+        address: address,
+        fid: farcasterUser?.fid,
+        username: farcasterUser?.username,
+        pfpUrl: farcasterUser?.pfpUrl
+      });
+    }
+
+    // 🔥 NOWY SYSTEM: Sync do player_profiles (TEXT-based identity)
+    const canonicalId = await syncPlayerProfile({
+      farcasterFid: farcasterUser?.fid,
+      walletAddress: address,
+      guestId: !address && !farcasterUser?.fid ? crypto.randomUUID() : null,
+      username: farcasterUser?.username,
+      avatarUrl: farcasterUser?.pfpUrl,
+    });
+    
+    setCurrentCanonicalId(canonicalId);
+
+    // Stary system stats (zachowany)
+    const stats = await getPlayerStats(address);
+    setPlayerStats(stats);
+    const skins = await getUnlockedSkins(address);
+    setUnlockedSkins(skins);
+    setBestScore(getBestScore(gameMode));
+  };
+  initProfile();
+}, [isConnected, address, gameMode, farcasterUser]);
 
   // --- Farcaster Context ---
   useEffect(() => {
-    const load = async () => {
-      try {
-        await sdk.actions.ready();
-        const context = await sdk.context;
-        setFarcasterUser(context?.user || { username: 'PlayerOne', pfpUrl: 'https://i.imgur.com/Kbd74kI.png' });
-      } catch (e) { 
-        setFarcasterUser({ username: 'Player', pfpUrl: 'https://via.placeholder.com/40' }); 
-      } finally {
-        setIsSDKLoaded(true);
-      }
-    };
-    if (sdk && !isSDKLoaded) load();
-  }, [isSDKLoaded]);
+  const load = async () => {
+    try {
+      await sdk.actions.ready();
+      const context = await sdk.context;
+      const user = context?.user || { username: 'PlayerOne', pfpUrl: 'https://i.imgur.com/Kbd74kI.png' };
+      setFarcasterUser(user);
+
+      // 🔥 NOWE: Synchronizacja profilu V2
+      // Wysyłamy dane do nowej tabeli player_profiles_v2
+      await upsertPlayerProfile({
+        address: address, // z hooka useAccount()
+        fid: user.fid,
+        username: user.username,
+        pfpUrl: user.pfpUrl,
+        displayName: user.displayName
+      });
+
+    } catch (e) { 
+      setFarcasterUser({ username: 'Player', pfpUrl: 'https://via.placeholder.com/40' }); 
+    } finally {
+      setIsSDKLoaded(true);
+    }
+  };
+  if (sdk && !isSDKLoaded) load();
+}, [isSDKLoaded, address]);
 
   // --- Game Logic ---
   const {
@@ -181,6 +219,7 @@ function App() {
     if (gameOver) {
       setIsPlaying(false);
       const handleGameOver = async () => {
+        // Stary system (zachowany dla misji)
         const newStats = await updatePlayerStats(applesCollected, score, address, gameMode);
         setPlayerStats(newStats);
         const newUnlocks = await checkUnlocks(newStats, address);
@@ -192,10 +231,20 @@ function App() {
           setUnlockNotification(newUnlocks);
         }
         if (score > bestScore) setBestScore(score);
+
+        // 🔥 NOWY SYSTEM: Zapisz sesję do game_sessions
+        if (currentCanonicalId) {
+          await saveGameSession({
+            userId: currentCanonicalId,
+            mode: gameMode,
+            score: score,
+            applesEaten: applesCollected,
+          });
+        }
       };
       handleGameOver();
     }
-  }, [gameOver, score, applesCollected, address, gameMode]);
+  }, [gameOver, score, applesCollected, address, gameMode, currentCanonicalId]);
 
   // Notification Auto-close
   useEffect(() => {
@@ -533,7 +582,14 @@ function App() {
         )}
 
         {showTutorial && <Tutorial onClose={() => setShowTutorial(false)} />}
-        {showLeaderboard && <Leaderboard onClose={() => setShowLeaderboard(false)} defaultTab={gameMode} />}
+        {showLeaderboard && (
+          <GlobalLeaderboard 
+            onClose={() => setShowLeaderboard(false)} 
+            defaultTab={gameMode}
+            currentCanonicalId={currentCanonicalId}
+            farcasterUser={farcasterUser}
+          />
+        )}
         {showDailyCheckIn && (
           <DailyCheckIn
             walletAddress={address} 

@@ -20,7 +20,7 @@ import { Base } from "@thirdweb-dev/chains";
 
 const config = getDefaultConfig({
   appName: 'Snake Neo Arena',
-  projectId: 'YOUR_PROJECT_ID', 
+  projectId: import.meta.env.VITE_WALLET_CONNECT_PROJECT_ID || 'YOUR_PROJECT_ID', 
   chains: [base],
   ssr: false,
 });

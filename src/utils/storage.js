@@ -320,6 +320,137 @@ export const clearLeaderboard = (keyName) => {
 };
 
 // ==========================================
+// NOWY SYSTEM LEADERBOARD (TEXT-based Identity)
+// ==========================================
+
+/**
+ * Synchronizuje profil gracza z priorytetem: Farcaster > Wallet > Guest
+ * @param {Object} identity - { farcasterFid, walletAddress, guestId, username, avatarUrl }
+ * @returns {Promise<string>} - canonical_user_id gracza
+ */
+export const syncPlayerProfile = async (identity) => {
+  const { farcasterFid, walletAddress, guestId, username, avatarUrl } = identity;
+  
+  // 1. Określ user_id i canonical_user_id (priorytet)
+  let userId, canonicalUserId, displayName, defaultAvatar;
+  
+  if (farcasterFid) {
+    userId = `fc:${farcasterFid}`;
+    canonicalUserId = `fc:${farcasterFid}`;
+    displayName = username || `Player_${farcasterFid}`;
+    defaultAvatar = avatarUrl || `https://api.dicebear.com/7.x/bottts-neutral/svg?seed=fc${farcasterFid}&backgroundColor=0a0e27`;
+  } else if (walletAddress) {
+    userId = walletAddress.toLowerCase();
+    canonicalUserId = walletAddress.toLowerCase();
+    displayName = `${walletAddress.substring(0, 6)}...${walletAddress.substring(walletAddress.length - 4)}`;
+    defaultAvatar = `https://api.dicebear.com/7.x/bottts-neutral/svg?seed=${walletAddress}&backgroundColor=0a0e27`;
+  } else if (guestId) {
+    userId = `guest:${guestId}`;
+    canonicalUserId = `guest:${guestId}`;
+    displayName = 'Guest Player';
+    defaultAvatar = `https://api.dicebear.com/7.x/bottts-neutral/svg?seed=${guestId}&backgroundColor=0a0e27`;
+  } else {
+    console.error('syncPlayerProfile: No identity provided');
+    return null;
+  }
+
+  try {
+    // 2. Sprawdź czy profil już istnieje
+    const { data: existing } = await supabase
+      .from('player_profiles')
+      .select('*')
+      .eq('user_id', userId)
+      .single();
+
+    if (existing) {
+      // Profil istnieje - zaktualizuj dane jeśli są nowsze
+      await supabase
+        .from('player_profiles')
+        .update({
+          display_name: displayName,
+          avatar_url: avatarUrl || existing.avatar_url,
+          farcaster_username: username || existing.farcaster_username,
+        })
+        .eq('user_id', userId);
+      
+      return existing.canonical_user_id;
+    }
+
+    // 3. Sprawdź czy istnieje profil Farcaster dla tego portfela (merge logic)
+    if (walletAddress && !farcasterFid) {
+      const { data: fcProfile } = await supabase
+        .from('player_profiles')
+        .select('canonical_user_id, farcaster_fid')
+        .eq('wallet_address', walletAddress.toLowerCase())
+        .not('farcaster_fid', 'is', null)
+        .single();
+      
+      if (fcProfile) {
+        // Użytkownik ma już konto Farcaster - użyj jego canonical_user_id
+        canonicalUserId = fcProfile.canonical_user_id;
+      }
+    }
+
+    // 4. Stwórz nowy profil
+    const { error: insertError } = await supabase
+      .from('player_profiles')
+      .insert({
+        user_id: userId,
+        canonical_user_id: canonicalUserId,
+        farcaster_fid: farcasterFid || null,
+        farcaster_username: username || null,
+        wallet_address: walletAddress ? walletAddress.toLowerCase() : null,
+        display_name: displayName,
+        avatar_url: avatarUrl || defaultAvatar,
+      });
+
+    if (insertError) throw insertError;
+    
+    console.log('✅ Player profile synced:', { userId, canonicalUserId });
+    return canonicalUserId;
+  } catch (error) {
+    console.error('syncPlayerProfile error:', error);
+    return null;
+  }
+};
+
+/**
+ * Zapisuje sesję gry do bazy danych
+ * @param {Object} session - { userId, mode, score, applesEaten }
+ */
+export const saveGameSession = async (session) => {
+  const { userId, mode, score, applesEaten } = session;
+  
+  console.log('🎮 Attempting to save game session:', { userId, mode, score, applesEaten });
+  
+  if (!userId || !mode || score === undefined) {
+    console.error('❌ saveGameSession: Missing required fields', session);
+    return;
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('game_sessions')
+      .insert({
+        user_id: userId,
+        mode: mode,
+        score: score,
+        apples_eaten: applesEaten || 0,
+      })
+      .select(); // Dodajemy .select() aby zobaczyć co zostało zapisane
+
+    if (error) {
+      console.error('❌ Supabase insert error:', error);
+      throw error;
+    }
+    
+    console.log('✅ Game session saved to DB:', data);
+  } catch (error) {
+    console.error('❌ saveGameSession error:', error);
+  }
+};
+
+// ==========================================
 // DAILY CHECK-IN SYSTEM 📅 (Wklej na końcu pliku storage.js)
 // ==========================================
 
