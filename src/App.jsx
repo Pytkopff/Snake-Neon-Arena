@@ -114,10 +114,22 @@ function App() {
     }
 
     // 🔥 NOWY SYSTEM: Sync do player_profiles (TEXT-based identity)
+    // Zapisz guestId w localStorage, żeby nie był generowany za każdym razem
+    let guestId = null;
+    if (!address && !farcasterUser?.fid) {
+      const savedGuestId = localStorage.getItem('snake_guest_id');
+      if (savedGuestId) {
+        guestId = savedGuestId;
+      } else {
+        guestId = crypto.randomUUID();
+        localStorage.setItem('snake_guest_id', guestId);
+      }
+    }
+    
     const canonicalId = await syncPlayerProfile({
       farcasterFid: farcasterUser?.fid,
       walletAddress: address,
-      guestId: !address && !farcasterUser?.fid ? crypto.randomUUID() : null,
+      guestId: guestId,
       username: farcasterUser?.username,
       avatarUrl: farcasterUser?.pfpUrl,
     });
@@ -125,6 +137,7 @@ function App() {
     setCurrentCanonicalId(canonicalId);
 
     // Pobierz statystyki (używamy canonicalId jeśli dostępny, inaczej address)
+    // Total Apples i Total Games są globalne i nie zależą od trybu
     const stats = await getPlayerStats(address, canonicalId);
     setPlayerStats(stats);
     const skins = await getUnlockedSkins(address);
@@ -132,7 +145,13 @@ function App() {
     setBestScore(getBestScore(gameMode));
   };
   initProfile();
-}, [isConnected, address, gameMode, farcasterUser]);
+}, [isConnected, address, farcasterUser]); // ❌ USUNIĘTE gameMode - nie resetuj statystyk przy zmianie trybu
+
+  // Osobny useEffect tylko dla aktualizacji bestScore przy zmianie trybu
+  useEffect(() => {
+    // Aktualizuj tylko bestScore dla wybranego trybu, nie resetuj całych statystyk
+    setBestScore(getBestScore(gameMode));
+  }, [gameMode]);
 
   // --- Farcaster Context ---
   useEffect(() => {
