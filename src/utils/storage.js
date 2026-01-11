@@ -87,29 +87,38 @@ export const getPlayerStats = async (walletAddress, canonicalId = null) => {
       console.log('📊 Using canonicalId directly:', targetCanonicalId);
       
       // Pobierz sumę jabłek z game_sessions
-      const { data: appleSumData } = await supabase
+      const { data: appleSumData, error: appleError } = await supabase
         .from('game_sessions')
         .select('apples_eaten')
         .eq('user_id', targetCanonicalId);
       
-      if (appleSumData && appleSumData.length > 0) {
-        const totalApplesFromDB = appleSumData.reduce((sum, row) => sum + (row.apples_eaten || 0), 0);
+      if (appleError) {
+        console.error('Error fetching apples from game_sessions:', appleError);
+      } else {
+        // Jeśli nie ma danych, totalApplesFromDB = 0, w przeciwnym razie sumuj
+        const totalApplesFromDB = appleSumData && appleSumData.length > 0
+          ? appleSumData.reduce((sum, row) => sum + (row.apples_eaten || 0), 0)
+          : 0;
         console.log('🍎 Total apples from game_sessions:', totalApplesFromDB);
         
-        // Synchronizuj z localStorage
+        // Zawsze synchronizuj z localStorage (nawet jeśli 0)
         setStorageItem(STORAGE_KEYS.TOTAL_APPLES, totalApplesFromDB);
         stats.totalApples = totalApplesFromDB;
       }
       
       // Pobierz liczbę gier
-      const { count } = await supabase
+      const { count, error: countError } = await supabase
         .from('game_sessions')
         .select('*', { count: 'exact', head: true })
         .eq('user_id', targetCanonicalId);
       
-      if (count !== null) {
-        setStorageItem(STORAGE_KEYS.TOTAL_GAMES, count);
-        stats.totalGames = count;
+      if (countError) {
+        console.error('Error counting games from game_sessions:', countError);
+      } else {
+        // Zawsze aktualizuj (nawet jeśli count = 0)
+        const gameCount = count !== null ? count : 0;
+        setStorageItem(STORAGE_KEYS.TOTAL_GAMES, gameCount);
+        stats.totalGames = gameCount;
       }
       
       return stats;
@@ -128,29 +137,38 @@ export const getPlayerStats = async (walletAddress, canonicalId = null) => {
         targetCanonicalId = newProfile.canonical_user_id;
         
         // Pobierz sumę jabłek z game_sessions
-        const { data: appleSumData } = await supabase
+        const { data: appleSumData, error: appleError } = await supabase
           .from('game_sessions')
           .select('apples_eaten')
           .eq('user_id', targetCanonicalId);
         
-        if (appleSumData && appleSumData.length > 0) {
-          const totalApplesFromDB = appleSumData.reduce((sum, row) => sum + (row.apples_eaten || 0), 0);
+        if (appleError) {
+          console.error('Error fetching apples from game_sessions:', appleError);
+        } else {
+          // Jeśli nie ma danych, totalApplesFromDB = 0, w przeciwnym razie sumuj
+          const totalApplesFromDB = appleSumData && appleSumData.length > 0
+            ? appleSumData.reduce((sum, row) => sum + (row.apples_eaten || 0), 0)
+            : 0;
           console.log('🍎 Total apples from game_sessions:', totalApplesFromDB);
           
-          // Synchronizuj z localStorage
+          // Zawsze synchronizuj z localStorage (nawet jeśli 0)
           setStorageItem(STORAGE_KEYS.TOTAL_APPLES, totalApplesFromDB);
           stats.totalApples = totalApplesFromDB;
         }
         
         // Pobierz liczbę gier
-        const { count } = await supabase
+        const { count, error: countError } = await supabase
           .from('game_sessions')
           .select('*', { count: 'exact', head: true })
           .eq('user_id', targetCanonicalId);
         
-        if (count !== null) {
-          setStorageItem(STORAGE_KEYS.TOTAL_GAMES, count);
-          stats.totalGames = count;
+        if (countError) {
+          console.error('Error counting games from game_sessions:', countError);
+        } else {
+          // Zawsze aktualizuj (nawet jeśli count = 0)
+          const gameCount = count !== null ? count : 0;
+          setStorageItem(STORAGE_KEYS.TOTAL_GAMES, gameCount);
+          stats.totalGames = gameCount;
         }
         
         return stats;
@@ -202,44 +220,40 @@ export const updatePlayerStats = async (applesInGame, score, walletAddress, mode
     setStorageItem(STORAGE_KEYS.TOTAL_GAMES, currentTotalGames + 1);
   } 
 
-  // 2. TERAZ WYSYŁAMY DO SUPABASE (Bezpiecznie)
-  if (walletAddress) {
-    try {
-      // Najpierw musimy zdobyć ID gracza na podstawie portfela
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('wallet_address', walletAddress)
-        .single();
-      
-      if (profile) {
-        console.log(`📡 Wysyłam wynik do bazy: ${score} pkt (${mode})`);
-
-        // A) Zgłaszamy wynik do historii (Trigger w bazie sam sprawdzi, czy to rekord!)
-        const { error: scoreError } = await supabase.from('game_scores').insert([{
-            user_id: profile.id,
-            score: score,
-            mode: mode
-        }]);
-
-        if (scoreError) console.error('Błąd zapisu wyniku:', scoreError);
-
-        // B) Bezpiecznie dodajemy jabłka (używając funkcji RPC, którą stworzyliśmy)
-        if (applesInGame > 0) {
-            const { error: appleError } = await supabase.rpc('increment_apples', { 
-                row_id: profile.id, 
-                quantity: applesInGame 
-            });
-            if (appleError) console.error('Błąd dodawania jabłek:', appleError);
-        }
-      }
-    } catch (err) {
-      console.error('Błąd komunikacji z Supabase:', err);
-    }
+  // ❌ USUNIĘTE: Stary system RPC increment_apples - nie używamy już tego
+  // Jabłka są zapisywane przez saveGameSession do game_sessions (nowy system)
+  // Statystyki będą pobierane przez getPlayerStats z game_sessions
+  
+  // Zwracamy statystyki (dla gości z localStorage, dla zalogowanych z bazy)
+  if (!walletAddress) {
+    return {
+      totalApples: getStorageItem(STORAGE_KEYS.TOTAL_APPLES, 0),
+      totalGames: getStorageItem(STORAGE_KEYS.TOTAL_GAMES, 0),
+      bestScore: Math.max(
+        getStorageItem(STORAGE_KEYS.BEST_SCORE, 0),
+        getStorageItem('snake_best_score_walls', 0),
+        getStorageItem('snake_best_score_chill', 0)
+      ),
+      bestScoreClassic: getStorageItem(STORAGE_KEYS.BEST_SCORE, 0),
+      bestScoreWalls: getStorageItem('snake_best_score_walls', 0),
+      bestScoreChill: getStorageItem('snake_best_score_chill', 0)
+    };
   }
-
-  // Na koniec pobieramy świeży stan z bazy (żeby upewnić się, że wszystko się zgadza)
-  return await getPlayerStats(walletAddress);
+  
+  // Dla zalogowanych użytkowników statystyki będą pobrane przez getPlayerStats w App.jsx
+  // Zwracamy tylko best scores (jabłka i gry będą z bazy)
+  return {
+    totalApples: getStorageItem(STORAGE_KEYS.TOTAL_APPLES, 0), // Tymczasowo, będzie nadpisane przez getPlayerStats
+    totalGames: getStorageItem(STORAGE_KEYS.TOTAL_GAMES, 0), // Tymczasowo, będzie nadpisane przez getPlayerStats
+    bestScore: Math.max(
+      getStorageItem(STORAGE_KEYS.BEST_SCORE, 0),
+      getStorageItem('snake_best_score_walls', 0),
+      getStorageItem('snake_best_score_chill', 0)
+    ),
+    bestScoreClassic: getStorageItem(STORAGE_KEYS.BEST_SCORE, 0),
+    bestScoreWalls: getStorageItem('snake_best_score_walls', 0),
+    bestScoreChill: getStorageItem('snake_best_score_chill', 0)
+  };
 };
 
 // 4. Skiny

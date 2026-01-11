@@ -229,15 +229,15 @@ function App() {
           });
         }
 
-        // Aktualizuj statystyki (teraz zawierają dane z game_sessions)
-        // Używamy canonicalId jeśli dostępny, inaczej address
-        const newStats = await updatePlayerStats(applesCollected, score, address, gameMode);
-        // Pobierz świeże statystyki z bazy (z game_sessions)
+        // Aktualizuj best score
+        await updatePlayerStats(applesCollected, score, address, gameMode);
+        
+        // Pobierz świeże statystyki z bazy (z game_sessions) - to jest jedyne źródło prawdy
         const freshStats = await getPlayerStats(address, currentCanonicalId);
         setPlayerStats(freshStats);
         
-        // Sprawdź odblokowywanie skinów (z aktualnymi statystykami)
-        const newUnlocks = await checkUnlocks(newStats, address);
+        // Sprawdź odblokowywanie skinów (z aktualnymi statystykami z bazy)
+        const newUnlocks = await checkUnlocks(freshStats, address);
         
         if (newUnlocks.length > 0) {
           const updatedSkins = await getUnlockedSkins(address);
