@@ -59,7 +59,7 @@ export const syncProfile = async (walletAddress) => {
 // 2. Pobieranie statystyk
 // src/utils/storage.js
 
-export const getPlayerStats = async (walletAddress) => {
+export const getPlayerStats = async (walletAddress, canonicalId = null) => {
   // 1. Pobieramy wyniki lokalne (Offline)
   const bestClassic = getStorageItem(STORAGE_KEYS.BEST_SCORE, 0); // Stary klucz to Classic
   const bestWalls = getStorageItem('snake_best_score_walls', 0);
@@ -77,25 +77,20 @@ export const getPlayerStats = async (walletAddress) => {
     bestScoreChill: bestChill
   };
 
-  if (!walletAddress) return stats;
-
   // 3. Logika Online (Supabase) - NOWY SYSTEM
+  // Priorytet: canonicalId > walletAddress
+  let targetCanonicalId = canonicalId;
+  
   try {
-    // A. Próbujemy najpierw nowy system (player_profiles + game_sessions)
-    const { data: newProfile } = await supabase
-      .from('player_profiles')
-      .select('canonical_user_id')
-      .eq('wallet_address', walletAddress.toLowerCase())
-      .single();
-    
-    if (newProfile) {
-      console.log('📊 Found new profile:', newProfile);
+    // A. Jeśli mamy canonicalId, użyj go bezpośrednio
+    if (targetCanonicalId) {
+      console.log('📊 Using canonicalId directly:', targetCanonicalId);
       
       // Pobierz sumę jabłek z game_sessions
       const { data: appleSumData } = await supabase
         .from('game_sessions')
         .select('apples_eaten')
-        .eq('user_id', newProfile.canonical_user_id);
+        .eq('user_id', targetCanonicalId);
       
       if (appleSumData && appleSumData.length > 0) {
         const totalApplesFromDB = appleSumData.reduce((sum, row) => sum + (row.apples_eaten || 0), 0);
@@ -110,7 +105,7 @@ export const getPlayerStats = async (walletAddress) => {
       const { count } = await supabase
         .from('game_sessions')
         .select('*', { count: 'exact', head: true })
-        .eq('user_id', newProfile.canonical_user_id);
+        .eq('user_id', targetCanonicalId);
       
       if (count !== null) {
         setStorageItem(STORAGE_KEYS.TOTAL_GAMES, count);
@@ -120,27 +115,69 @@ export const getPlayerStats = async (walletAddress) => {
       return stats;
     }
     
-    // B. Fallback: jeśli nie ma w nowym systemie, próbujemy starego (dla backward compatibility)
-    const { data: profile } = await supabase.from('profiles').select('id').eq('wallet_address', walletAddress).single();
-    if (!profile) return stats;
-
-    const { data: dbStats } = await supabase.from('player_stats').select('*').eq('user_id', profile.id).single();
-    
-    if (dbStats) {
-      // Jeśli mamy dane z chmury, nadpisujemy lokalne
-      setStorageItem(STORAGE_KEYS.TOTAL_APPLES, dbStats.total_apples_eaten);
-      setStorageItem(STORAGE_KEYS.TOTAL_GAMES, dbStats.total_games_played);
+    // B. Jeśli nie ma canonicalId, próbuj znaleźć przez walletAddress
+    if (walletAddress) {
+      const { data: newProfile } = await supabase
+        .from('player_profiles')
+        .select('canonical_user_id')
+        .eq('wallet_address', walletAddress.toLowerCase())
+        .single();
       
-      stats = {
-          totalApples: dbStats.total_apples_eaten,
-          totalGames: dbStats.total_games_played,
-          // Ogólny
-          bestScore: Math.max(dbStats.highest_score_classic, dbStats.highest_score_walls, dbStats.highest_score_chill),
-          // Szczegółowe
-          bestScoreClassic: dbStats.highest_score_classic,
-          bestScoreWalls: dbStats.highest_score_walls,
-          bestScoreChill: dbStats.highest_score_chill
-      };
+      if (newProfile) {
+        console.log('📊 Found new profile by wallet:', newProfile);
+        targetCanonicalId = newProfile.canonical_user_id;
+        
+        // Pobierz sumę jabłek z game_sessions
+        const { data: appleSumData } = await supabase
+          .from('game_sessions')
+          .select('apples_eaten')
+          .eq('user_id', targetCanonicalId);
+        
+        if (appleSumData && appleSumData.length > 0) {
+          const totalApplesFromDB = appleSumData.reduce((sum, row) => sum + (row.apples_eaten || 0), 0);
+          console.log('🍎 Total apples from game_sessions:', totalApplesFromDB);
+          
+          // Synchronizuj z localStorage
+          setStorageItem(STORAGE_KEYS.TOTAL_APPLES, totalApplesFromDB);
+          stats.totalApples = totalApplesFromDB;
+        }
+        
+        // Pobierz liczbę gier
+        const { count } = await supabase
+          .from('game_sessions')
+          .select('*', { count: 'exact', head: true })
+          .eq('user_id', targetCanonicalId);
+        
+        if (count !== null) {
+          setStorageItem(STORAGE_KEYS.TOTAL_GAMES, count);
+          stats.totalGames = count;
+        }
+        
+        return stats;
+      }
+      
+      // C. Fallback: stary system (dla backward compatibility)
+      const { data: profile } = await supabase.from('profiles').select('id').eq('wallet_address', walletAddress).single();
+      if (profile) {
+        const { data: dbStats } = await supabase.from('player_stats').select('*').eq('user_id', profile.id).single();
+        
+        if (dbStats) {
+          // Jeśli mamy dane z chmury, nadpisujemy lokalne
+          setStorageItem(STORAGE_KEYS.TOTAL_APPLES, dbStats.total_apples_eaten);
+          setStorageItem(STORAGE_KEYS.TOTAL_GAMES, dbStats.total_games_played);
+          
+          stats = {
+              totalApples: dbStats.total_apples_eaten,
+              totalGames: dbStats.total_games_played,
+              // Ogólny
+              bestScore: Math.max(dbStats.highest_score_classic, dbStats.highest_score_walls, dbStats.highest_score_chill),
+              // Szczegółowe
+              bestScoreClassic: dbStats.highest_score_classic,
+              bestScoreWalls: dbStats.highest_score_walls,
+              bestScoreChill: dbStats.highest_score_chill
+          };
+        }
+      }
     }
   } catch (e) {
     console.error("Error syncing stats:", e);
@@ -153,14 +190,17 @@ export const getPlayerStats = async (walletAddress) => {
 // src/utils/storage.js
 
 export const updatePlayerStats = async (applesInGame, score, walletAddress, mode = 'classic') => {
-  // 1. NAJPIERW LOKALNIE (Żeby gracz widział wynik od razu na ekranie)
-  const currentTotalApples = getStorageItem(STORAGE_KEYS.TOTAL_APPLES, 0);
-  const currentTotalGames = getStorageItem(STORAGE_KEYS.TOTAL_GAMES, 0);
+  // Aktualizujemy best score lokalnie
+  updateBestScore(score, mode);
   
-  // Aktualizujemy "brudnopis" w przeglądarce
-  setStorageItem(STORAGE_KEYS.TOTAL_APPLES, currentTotalApples + applesInGame);
-  setStorageItem(STORAGE_KEYS.TOTAL_GAMES, currentTotalGames + 1);
-  updateBestScore(score, mode); 
+  // Dla gości (bez walletAddress) aktualizujemy localStorage bezpośrednio
+  // Dla zalogowanych użytkowników dane będą z bazy przez getPlayerStats
+  if (!walletAddress) {
+    const currentTotalApples = getStorageItem(STORAGE_KEYS.TOTAL_APPLES, 0);
+    const currentTotalGames = getStorageItem(STORAGE_KEYS.TOTAL_GAMES, 0);
+    setStorageItem(STORAGE_KEYS.TOTAL_APPLES, currentTotalApples + applesInGame);
+    setStorageItem(STORAGE_KEYS.TOTAL_GAMES, currentTotalGames + 1);
+  } 
 
   // 2. TERAZ WYSYŁAMY DO SUPABASE (Bezpiecznie)
   if (walletAddress) {
@@ -526,11 +566,8 @@ export const saveGameSession = async (session) => {
     
     console.log('✅ Game session saved to DB:', data);
     
-    // 🍎 AKTUALIZUJ LOCALSTORAGE po zapisie (dla Daily Check-in i innych komponentów)
-    const currentApples = getStorageItem(STORAGE_KEYS.TOTAL_APPLES, 0);
-    const newTotal = currentApples + (applesEaten || 0);
-    setStorageItem(STORAGE_KEYS.TOTAL_APPLES, newTotal);
-    console.log('🍎 Updated localStorage apples:', currentApples, '->', newTotal);
+    // ❌ USUNIĘTE: Nie aktualizujemy localStorage tutaj, bo to powoduje podwójne zliczanie
+    // localStorage będzie zaktualizowany przez getPlayerStats() który sumuje z game_sessions
     
   } catch (error) {
     console.error('❌ saveGameSession error:', error);

@@ -124,8 +124,8 @@ function App() {
     
     setCurrentCanonicalId(canonicalId);
 
-    // Stary system stats (zachowany)
-    const stats = await getPlayerStats(address);
+    // Pobierz statystyki (używamy canonicalId jeśli dostępny, inaczej address)
+    const stats = await getPlayerStats(address, canonicalId);
     setPlayerStats(stats);
     const skins = await getUnlockedSkins(address);
     setUnlockedSkins(skins);
@@ -230,8 +230,11 @@ function App() {
         }
 
         // Aktualizuj statystyki (teraz zawierają dane z game_sessions)
+        // Używamy canonicalId jeśli dostępny, inaczej address
         const newStats = await updatePlayerStats(applesCollected, score, address, gameMode);
-        setPlayerStats(newStats);
+        // Pobierz świeże statystyki z bazy (z game_sessions)
+        const freshStats = await getPlayerStats(address, currentCanonicalId);
+        setPlayerStats(freshStats);
         
         // Sprawdź odblokowywanie skinów (z aktualnymi statystykami)
         const newUnlocks = await checkUnlocks(newStats, address);
