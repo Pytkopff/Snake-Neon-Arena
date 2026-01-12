@@ -646,7 +646,71 @@ export const syncPlayerProfile = async (identity) => {
   }
 
   try {
-    // 2. Sprawdź czy profil już istnieje
+    // 🔥 MERGE STRATEGY: Prevent "Split Personality" Bug
+    // If user has BOTH Farcaster AND Wallet, merge them into ONE profile
+    
+    // 2A. Sprawdź czy istnieje profil Farcaster (priorytet najwyższy)
+    if (farcasterFid && walletAddress) {
+      console.log('🔄 User has both Farcaster AND Wallet - checking for merge...');
+      
+      const { data: fcProfile } = await supabase
+        .from('player_profiles')
+        .select('*')
+        .eq('user_id', `fc:${farcasterFid}`)
+        .single();
+      
+      if (fcProfile) {
+        // Farcaster profil już istnieje - UPDATE z wallet_address
+        console.log('✅ Found existing Farcaster profile - updating with wallet');
+        await supabase
+          .from('player_profiles')
+          .update({
+            wallet_address: walletAddress.toLowerCase(),
+            display_name: displayName,
+            avatar_url: avatarUrl || fcProfile.avatar_url,
+            farcaster_username: username || fcProfile.farcaster_username,
+          })
+          .eq('user_id', `fc:${farcasterFid}`);
+        
+        // Usuń stary profil wallet-only jeśli istnieje (merge)
+        await supabase
+          .from('player_profiles')
+          .delete()
+          .eq('user_id', walletAddress.toLowerCase())
+          .neq('user_id', `fc:${farcasterFid}`);
+        
+        console.log('✅ Merged wallet into Farcaster profile');
+        return fcProfile.canonical_user_id;
+      }
+      
+      // Sprawdź czy istnieje profil wallet-only
+      const { data: walletProfile } = await supabase
+        .from('player_profiles')
+        .select('*')
+        .eq('user_id', walletAddress.toLowerCase())
+        .single();
+      
+      if (walletProfile) {
+        // Wallet profil istnieje - UPDATE z Farcaster info
+        console.log('✅ Found existing Wallet profile - upgrading to Farcaster');
+        await supabase
+          .from('player_profiles')
+          .update({
+            user_id: userId, // Zmień na fc:XXX
+            canonical_user_id: canonicalUserId, // Zmień na fc:XXX
+            farcaster_fid: farcasterFid,
+            farcaster_username: username,
+            display_name: displayName,
+            avatar_url: avatarUrl || walletProfile.avatar_url,
+          })
+          .eq('user_id', walletAddress.toLowerCase());
+        
+        console.log('✅ Upgraded wallet profile to Farcaster');
+        return canonicalUserId;
+      }
+    }
+    
+    // 2B. Sprawdź czy profil już istnieje (standard flow)
     const { data: existing } = await supabase
       .from('player_profiles')
       .select('*')
@@ -658,6 +722,7 @@ export const syncPlayerProfile = async (identity) => {
       await supabase
         .from('player_profiles')
         .update({
+          wallet_address: walletAddress ? walletAddress.toLowerCase() : existing.wallet_address,
           display_name: displayName,
           avatar_url: avatarUrl || existing.avatar_url,
           farcaster_username: username || existing.farcaster_username,
@@ -667,7 +732,7 @@ export const syncPlayerProfile = async (identity) => {
       return existing.canonical_user_id;
     }
 
-    // 3. Sprawdź czy istnieje profil Farcaster dla tego portfela (merge logic)
+    // 3. Sprawdź czy istnieje profil Farcaster dla tego portfela (merge logic - backward compat)
     if (walletAddress && !farcasterFid) {
       const { data: fcProfile } = await supabase
         .from('player_profiles')
@@ -677,12 +742,14 @@ export const syncPlayerProfile = async (identity) => {
         .single();
       
       if (fcProfile) {
-        // Użytkownik ma już konto Farcaster - użyj jego canonical_user_id
-        canonicalUserId = fcProfile.canonical_user_id;
+        // Użytkownik ma już konto Farcaster - nie twórz nowego, zwróć istniejący
+        console.log('✅ Wallet matches existing Farcaster account');
+        return fcProfile.canonical_user_id;
       }
     }
 
-    // 4. Stwórz nowy profil
+    // 4. Stwórz nowy profil (tylko jeśli żaden nie istnieje)
+    console.log('📝 Creating new profile:', { userId, canonicalUserId });
     const { error: insertError } = await supabase
       .from('player_profiles')
       .insert({
