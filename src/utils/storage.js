@@ -3,6 +3,117 @@ import { STORAGE_KEYS, SKINS, MISSIONS } from './constants';
 // Upewnij się, że plik supabaseClient.js istnieje w tym samym folderze!
 import { supabase } from './supabaseClient';
 
+// ==========================================
+// 🔥 CROSS-DEVICE SYNC: Fetch from SQL Views
+// ==========================================
+
+/**
+ * Pobiera najlepsze wyniki gracza bezpośrednio z widoków SQL (leaderboard_*)
+ * To jest JEDYNE ŹRÓDŁO PRAWDY dla wyników między urządzeniami
+ * @param {string} canonicalId - canonical_user_id gracza
+ * @returns {Promise<Object>} - { bestScoreClassic, bestScoreWalls, bestScoreChill, totalApples }
+ */
+export const fetchBestScoresFromDB = async (canonicalId) => {
+  if (!canonicalId) {
+    return { bestScoreClassic: 0, bestScoreWalls: 0, bestScoreChill: 0, totalApples: 0 };
+  }
+
+  try {
+    console.log('🔄 Fetching best scores from DB for:', canonicalId);
+
+    // Pobierz wyniki równolegle z wszystkich widoków
+    const [classicResult, wallsResult, chillResult, applesResult] = await Promise.all([
+      supabase
+        .from('leaderboard_classic')
+        .select('score')
+        .eq('canonical_user_id', canonicalId)
+        .single(),
+      supabase
+        .from('leaderboard_walls')
+        .select('score')
+        .eq('canonical_user_id', canonicalId)
+        .single(),
+      supabase
+        .from('leaderboard_chill')
+        .select('score')
+        .eq('canonical_user_id', canonicalId)
+        .single(),
+      supabase
+        .from('leaderboard_total_apples')
+        .select('total_apples')
+        .eq('canonical_user_id', canonicalId)
+        .single()
+    ]);
+
+    const scores = {
+      bestScoreClassic: classicResult.data?.score || 0,
+      bestScoreWalls: wallsResult.data?.score || 0,
+      bestScoreChill: chillResult.data?.score || 0,
+      totalApples: applesResult.data?.total_apples || 0
+    };
+
+    console.log('✅ DB scores fetched:', scores);
+    return scores;
+  } catch (error) {
+    console.error('❌ Error fetching scores from DB:', error);
+    return { bestScoreClassic: 0, bestScoreWalls: 0, bestScoreChill: 0, totalApples: 0 };
+  }
+};
+
+/**
+ * Automatyczne przesyłanie wyższych lokalnych wyników do bazy (Conflict Resolution)
+ * Gdy gracz ma wyższy wynik lokalnie (np. po grze offline), automatycznie przesyłamy go do DB
+ * @param {string} canonicalId - canonical_user_id gracza
+ * @param {Object} localScores - { bestScoreClassic, bestScoreWalls, bestScoreChill }
+ * @param {Object} dbScores - { bestScoreClassic, bestScoreWalls, bestScoreChill }
+ */
+export const syncLocalScoresToDB = async (canonicalId, localScores, dbScores) => {
+  if (!canonicalId) return;
+
+  try {
+    const modesToSync = [];
+    
+    // Sprawdź, które wyniki lokalne są wyższe
+    if (localScores.bestScoreClassic > dbScores.bestScoreClassic) {
+      modesToSync.push({ mode: 'classic', score: localScores.bestScoreClassic });
+    }
+    if (localScores.bestScoreWalls > dbScores.bestScoreWalls) {
+      modesToSync.push({ mode: 'walls', score: localScores.bestScoreWalls });
+    }
+    if (localScores.bestScoreChill > dbScores.bestScoreChill) {
+      modesToSync.push({ mode: 'chill', score: localScores.bestScoreChill });
+    }
+
+    if (modesToSync.length === 0) {
+      console.log('✅ All local scores are synced with DB');
+      return;
+    }
+
+    console.log('🔄 Syncing higher local scores to DB:', modesToSync);
+
+    // Prześlij wyższe wyniki jako nowe sesje gry (z 0 jabłek, bo nie pamiętamy ile było)
+    const sessionsToInsert = modesToSync.map(({ mode, score }) => ({
+      user_id: canonicalId,
+      mode: mode,
+      score: score,
+      apples_eaten: 0, // Nie znamy dokładnej liczby jabłek dla starego wyniku
+      created_at: new Date().toISOString()
+    }));
+
+    const { error } = await supabase
+      .from('game_sessions')
+      .insert(sessionsToInsert);
+
+    if (error) {
+      console.error('❌ Error syncing local scores to DB:', error);
+    } else {
+      console.log('✅ Local scores synced to DB successfully');
+    }
+  } catch (error) {
+    console.error('❌ Error in syncLocalScoresToDB:', error);
+  }
+};
+
 // --- POMOCNICZE LOKALNE (OFFLINE) ---
 export const getStorageItem = (key, defaultValue) => {
   try {
@@ -60,21 +171,22 @@ export const syncProfile = async (walletAddress) => {
 // src/utils/storage.js
 
 export const getPlayerStats = async (walletAddress, canonicalId = null) => {
-  // 1. Pobieramy wyniki lokalne (Offline)
-  const bestClassic = getStorageItem(STORAGE_KEYS.BEST_SCORE, 0); // Stary klucz to Classic
-  const bestWalls = getStorageItem('snake_best_score_walls', 0);
-  const bestChill = getStorageItem('snake_best_score_chill', 0);
+  // 1. Pobieramy wyniki lokalne (Offline) - to będzie fallback
+  const localBestClassic = getStorageItem(STORAGE_KEYS.BEST_SCORE, 0);
+  const localBestWalls = getStorageItem('snake_best_score_walls', 0);
+  const localBestChill = getStorageItem('snake_best_score_chill', 0);
+  const localTotalApples = getStorageItem(STORAGE_KEYS.TOTAL_APPLES, 0);
 
-  // 2. Budujemy obiekt statystyk
+  // 2. Budujemy obiekt statystyk (startujemy z lokalnych wartości)
   let stats = {
-    totalApples: getStorageItem(STORAGE_KEYS.TOTAL_APPLES, 0),
+    totalApples: localTotalApples,
     totalGames: getStorageItem(STORAGE_KEYS.TOTAL_GAMES, 0),
-    bestScore: Math.max(bestClassic, bestWalls, bestChill), // Ogólny Max (do nagłówka)
+    bestScore: Math.max(localBestClassic, localBestWalls, localBestChill),
     
     // 🔥 TE TRZY POLA SĄ KLUCZOWE DLA MISJI:
-    bestScoreClassic: bestClassic,
-    bestScoreWalls: bestWalls,
-    bestScoreChill: bestChill
+    bestScoreClassic: localBestClassic,
+    bestScoreWalls: localBestWalls,
+    bestScoreChill: localBestChill
   };
 
   // 3. Logika Online (Supabase) - NOWY SYSTEM
@@ -86,25 +198,8 @@ export const getPlayerStats = async (walletAddress, canonicalId = null) => {
     if (targetCanonicalId) {
       console.log('📊 Using canonicalId directly:', targetCanonicalId);
       
-      // Pobierz sumę jabłek z game_sessions
-      const { data: appleSumData, error: appleError } = await supabase
-        .from('game_sessions')
-        .select('apples_eaten')
-        .eq('user_id', targetCanonicalId);
-      
-      if (appleError) {
-        console.error('Error fetching apples from game_sessions:', appleError);
-      } else {
-        // Jeśli nie ma danych, totalApplesFromDB = 0, w przeciwnym razie sumuj
-        const totalApplesFromDB = appleSumData && appleSumData.length > 0
-          ? appleSumData.reduce((sum, row) => sum + (row.apples_eaten || 0), 0)
-          : 0;
-        console.log('🍎 Total apples from game_sessions:', totalApplesFromDB);
-        
-        // Zawsze synchronizuj z localStorage (nawet jeśli 0)
-        setStorageItem(STORAGE_KEYS.TOTAL_APPLES, totalApplesFromDB);
-        stats.totalApples = totalApplesFromDB;
-      }
+      // 🔥 FETCH BEST SCORES FROM SQL VIEWS (CROSS-DEVICE SYNC)
+      const dbScores = await fetchBestScoresFromDB(targetCanonicalId);
       
       // Pobierz liczbę gier
       const { count, error: countError } = await supabase
@@ -114,12 +209,52 @@ export const getPlayerStats = async (walletAddress, canonicalId = null) => {
       
       if (countError) {
         console.error('Error counting games from game_sessions:', countError);
-      } else {
-        // Zawsze aktualizuj (nawet jeśli count = 0)
-        const gameCount = count !== null ? count : 0;
-        setStorageItem(STORAGE_KEYS.TOTAL_GAMES, gameCount);
-        stats.totalGames = gameCount;
       }
+      
+      const gameCount = count !== null ? count : 0;
+      
+      // 🔥 CONFLICT RESOLUTION: Porównaj lokalne wyniki z bazą
+      // Jeśli lokalne wyniki są WYŻSZE niż w bazie, automatycznie prześlij je w tle
+      const localScores = {
+        bestScoreClassic: localBestClassic,
+        bestScoreWalls: localBestWalls,
+        bestScoreChill: localBestChill
+      };
+      
+      // Automatycznie synchronizuj wyższe lokalne wyniki do bazy (w tle, nie czekaj)
+      syncLocalScoresToDB(targetCanonicalId, localScores, dbScores).catch(err => 
+        console.error('Background sync failed:', err)
+      );
+      
+      const resolvedScores = {
+        bestScoreClassic: Math.max(localBestClassic, dbScores.bestScoreClassic),
+        bestScoreWalls: Math.max(localBestWalls, dbScores.bestScoreWalls),
+        bestScoreChill: Math.max(localBestChill, dbScores.bestScoreChill),
+        totalApples: Math.max(localTotalApples, dbScores.totalApples)
+      };
+      
+      // Zapisz rozwiązane wartości do localStorage (priorytet dla wyższych)
+      setStorageItem(STORAGE_KEYS.BEST_SCORE, resolvedScores.bestScoreClassic);
+      setStorageItem('snake_best_score_walls', resolvedScores.bestScoreWalls);
+      setStorageItem('snake_best_score_chill', resolvedScores.bestScoreChill);
+      setStorageItem(STORAGE_KEYS.TOTAL_APPLES, resolvedScores.totalApples);
+      setStorageItem(STORAGE_KEYS.TOTAL_GAMES, gameCount);
+      
+      console.log('✅ Resolved scores (local vs DB):', {
+        classic: { local: localBestClassic, db: dbScores.bestScoreClassic, resolved: resolvedScores.bestScoreClassic },
+        walls: { local: localBestWalls, db: dbScores.bestScoreWalls, resolved: resolvedScores.bestScoreWalls },
+        chill: { local: localBestChill, db: dbScores.bestScoreChill, resolved: resolvedScores.bestScoreChill },
+        apples: { local: localTotalApples, db: dbScores.totalApples, resolved: resolvedScores.totalApples }
+      });
+      
+      stats = {
+        totalApples: resolvedScores.totalApples,
+        totalGames: gameCount,
+        bestScore: Math.max(resolvedScores.bestScoreClassic, resolvedScores.bestScoreWalls, resolvedScores.bestScoreChill),
+        bestScoreClassic: resolvedScores.bestScoreClassic,
+        bestScoreWalls: resolvedScores.bestScoreWalls,
+        bestScoreChill: resolvedScores.bestScoreChill
+      };
       
       return stats;
     }
@@ -136,25 +271,8 @@ export const getPlayerStats = async (walletAddress, canonicalId = null) => {
         console.log('📊 Found new profile by wallet:', newProfile);
         targetCanonicalId = newProfile.canonical_user_id;
         
-        // Pobierz sumę jabłek z game_sessions
-        const { data: appleSumData, error: appleError } = await supabase
-          .from('game_sessions')
-          .select('apples_eaten')
-          .eq('user_id', targetCanonicalId);
-        
-        if (appleError) {
-          console.error('Error fetching apples from game_sessions:', appleError);
-        } else {
-          // Jeśli nie ma danych, totalApplesFromDB = 0, w przeciwnym razie sumuj
-          const totalApplesFromDB = appleSumData && appleSumData.length > 0
-            ? appleSumData.reduce((sum, row) => sum + (row.apples_eaten || 0), 0)
-            : 0;
-          console.log('🍎 Total apples from game_sessions:', totalApplesFromDB);
-          
-          // Zawsze synchronizuj z localStorage (nawet jeśli 0)
-          setStorageItem(STORAGE_KEYS.TOTAL_APPLES, totalApplesFromDB);
-          stats.totalApples = totalApplesFromDB;
-        }
+        // 🔥 FETCH BEST SCORES FROM SQL VIEWS (CROSS-DEVICE SYNC)
+        const dbScores = await fetchBestScoresFromDB(targetCanonicalId);
         
         // Pobierz liczbę gier
         const { count, error: countError } = await supabase
@@ -164,12 +282,51 @@ export const getPlayerStats = async (walletAddress, canonicalId = null) => {
         
         if (countError) {
           console.error('Error counting games from game_sessions:', countError);
-        } else {
-          // Zawsze aktualizuj (nawet jeśli count = 0)
-          const gameCount = count !== null ? count : 0;
-          setStorageItem(STORAGE_KEYS.TOTAL_GAMES, gameCount);
-          stats.totalGames = gameCount;
         }
+        
+        const gameCount = count !== null ? count : 0;
+        
+        // 🔥 CONFLICT RESOLUTION: Porównaj lokalne wyniki z bazą
+        const localScores = {
+          bestScoreClassic: localBestClassic,
+          bestScoreWalls: localBestWalls,
+          bestScoreChill: localBestChill
+        };
+        
+        // Automatycznie synchronizuj wyższe lokalne wyniki do bazy (w tle, nie czekaj)
+        syncLocalScoresToDB(targetCanonicalId, localScores, dbScores).catch(err => 
+          console.error('Background sync failed:', err)
+        );
+        
+        const resolvedScores = {
+          bestScoreClassic: Math.max(localBestClassic, dbScores.bestScoreClassic),
+          bestScoreWalls: Math.max(localBestWalls, dbScores.bestScoreWalls),
+          bestScoreChill: Math.max(localBestChill, dbScores.bestScoreChill),
+          totalApples: Math.max(localTotalApples, dbScores.totalApples)
+        };
+        
+        // Zapisz rozwiązane wartości do localStorage
+        setStorageItem(STORAGE_KEYS.BEST_SCORE, resolvedScores.bestScoreClassic);
+        setStorageItem('snake_best_score_walls', resolvedScores.bestScoreWalls);
+        setStorageItem('snake_best_score_chill', resolvedScores.bestScoreChill);
+        setStorageItem(STORAGE_KEYS.TOTAL_APPLES, resolvedScores.totalApples);
+        setStorageItem(STORAGE_KEYS.TOTAL_GAMES, gameCount);
+        
+        console.log('✅ Resolved scores (local vs DB):', {
+          classic: { local: localBestClassic, db: dbScores.bestScoreClassic, resolved: resolvedScores.bestScoreClassic },
+          walls: { local: localBestWalls, db: dbScores.bestScoreWalls, resolved: resolvedScores.bestScoreWalls },
+          chill: { local: localBestChill, db: dbScores.bestScoreChill, resolved: resolvedScores.bestScoreChill },
+          apples: { local: localTotalApples, db: dbScores.totalApples, resolved: resolvedScores.totalApples }
+        });
+        
+        stats = {
+          totalApples: resolvedScores.totalApples,
+          totalGames: gameCount,
+          bestScore: Math.max(resolvedScores.bestScoreClassic, resolvedScores.bestScoreWalls, resolvedScores.bestScoreChill),
+          bestScoreClassic: resolvedScores.bestScoreClassic,
+          bestScoreWalls: resolvedScores.bestScoreWalls,
+          bestScoreChill: resolvedScores.bestScoreChill
+        };
         
         return stats;
       }
