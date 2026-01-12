@@ -646,6 +646,8 @@ export const syncPlayerProfile = async (identity) => {
   }
 
   try {
+    console.log('🔄 syncPlayerProfile called with:', { farcasterFid, walletAddress, guestId, username });
+    
     // 🔥 MERGE STRATEGY: Prevent "Split Personality" Bug
     // If user has BOTH Farcaster AND Wallet, merge them into ONE profile
     
@@ -672,12 +674,31 @@ export const syncPlayerProfile = async (identity) => {
           })
           .eq('user_id', `fc:${farcasterFid}`);
         
-        // Usuń stary profil wallet-only jeśli istnieje (merge)
-        await supabase
+        // 🔥 FIX: Usuń WSZYSTKIE duplikaty dla tego wallet_address (nie tylko exact match)
+        const { data: duplicates } = await supabase
           .from('player_profiles')
-          .delete()
-          .eq('user_id', walletAddress.toLowerCase())
+          .select('user_id')
+          .eq('wallet_address', walletAddress.toLowerCase())
           .neq('user_id', `fc:${farcasterFid}`);
+        
+        if (duplicates && duplicates.length > 0) {
+          console.log('🗑️ Removing duplicate profiles:', duplicates.map(d => d.user_id));
+          
+          // Przenieś sesje gry ze starych profili do Farcaster profilu
+          for (const dup of duplicates) {
+            await supabase
+              .from('game_sessions')
+              .update({ user_id: `fc:${farcasterFid}` })
+              .eq('user_id', dup.user_id);
+          }
+          
+          // Teraz usuń duplikaty
+          await supabase
+            .from('player_profiles')
+            .delete()
+            .eq('wallet_address', walletAddress.toLowerCase())
+            .neq('user_id', `fc:${farcasterFid}`);
+        }
         
         console.log('✅ Merged wallet into Farcaster profile');
         return fcProfile.canonical_user_id;

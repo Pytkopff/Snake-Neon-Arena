@@ -1,6 +1,6 @@
 // src/App.jsx
 
-import { upsertPlayerProfile } from './utils/playerSync';
+// ❌ REMOVED: import { upsertPlayerProfile } from './utils/playerSync'; - nieużywane
 import DailyCheckIn from './components/DailyCheckIn';
 import { useEffect, useState, useRef } from 'react';
 import sdk from '@farcaster/frame-sdk';
@@ -101,16 +101,8 @@ function App() {
       }
       localStorage.setItem('snake_last_wallet', address);
       
-      // 1. Stara synchronizacja (zostawiamy dla bezpieczeństwa)
+      // 1. Stara synchronizacja (zostawiamy dla bezpieczeństwa - stary system)
       await syncProfile(address);
-
-      // 2. Stara synchronizacja V2 (playerSync)
-      await upsertPlayerProfile({
-        address: address,
-        fid: farcasterUser?.fid,
-        username: farcasterUser?.username,
-        pfpUrl: farcasterUser?.pfpUrl
-      });
     }
 
     // 🔥 NOWY SYSTEM: Sync do player_profiles (TEXT-based identity)
@@ -124,6 +116,10 @@ function App() {
         guestId = crypto.randomUUID();
         localStorage.setItem('snake_guest_id', guestId);
       }
+    } else {
+      // 🔥 FIX: Jeśli user się zalogował (Farcaster lub Wallet), wyczyść guestId
+      // To zapobiega tworzeniu duplikatów na mobile
+      localStorage.removeItem('snake_guest_id');
     }
     
     const canonicalId = await syncPlayerProfile({
@@ -134,6 +130,7 @@ function App() {
       avatarUrl: farcasterUser?.pfpUrl,
     });
     
+    console.log('🔑 Current Canonical ID set to:', canonicalId);
     setCurrentCanonicalId(canonicalId);
 
     // Pobierz statystyki (używamy canonicalId jeśli dostępny, inaczej address)
@@ -162,15 +159,8 @@ function App() {
       const user = context?.user || { username: 'PlayerOne', pfpUrl: 'https://i.imgur.com/Kbd74kI.png' };
       setFarcasterUser(user);
 
-      // 🔥 NOWE: Synchronizacja profilu V2
-      // Wysyłamy dane do nowej tabeli player_profiles_v2
-      await upsertPlayerProfile({
-        address: address, // z hooka useAccount()
-        fid: user.fid,
-        username: user.username,
-        pfpUrl: user.pfpUrl,
-        displayName: user.displayName
-      });
+      // ❌ REMOVED: Stara synchronizacja do player_profiles_v2 (nieużywana)
+      // Używamy tylko syncPlayerProfile() w initProfile useEffect
 
     } catch (e) { 
       setFarcasterUser({ username: 'Player', pfpUrl: 'https://via.placeholder.com/40' }); 
