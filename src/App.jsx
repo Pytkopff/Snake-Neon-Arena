@@ -86,6 +86,15 @@ function App() {
   // --- Profile & Storage Sync ---
  useEffect(() => {
   const initProfile = async () => {
+    // 🔥 CRITICAL: In Farcaster mini-app (web), SDK context can arrive a bit later.
+    // If we create a guest profile before SDK resolves, we end up saving sessions as `guest:*`
+    // which then show up as duplicate "Anonymous" entries with the same best score.
+    // So: if wallet isn't connected and SDK isn't loaded yet, wait.
+    if (!address && !isSDKLoaded) {
+      console.log('⏳ Waiting for Farcaster SDK context before creating guest identity...');
+      return;
+    }
+
     // Stary system (zachowany dla misji i daily rewards)
     if (address) {
       const lastAddress = localStorage.getItem('snake_last_wallet');
@@ -106,32 +115,37 @@ function App() {
     }
 
     // 🔥 NOWY SYSTEM: Sync do player_profiles (TEXT-based identity)
-    // Zapisz guestId w localStorage, żeby nie był generowany za każdym razem
+    // Utrzymujemy guestId w localStorage, ale przy logowaniu NAJPIERW scalamy sesje guest -> konto główne,
+    // a dopiero potem czyścimy guestId (inaczej zostają sieroty w DB i w rankingu widać "Anonymous").
+    const savedGuestId = localStorage.getItem('snake_guest_id');
+    const isLoggedIn = Boolean(address || farcasterUser?.fid);
     let guestId = null;
-    if (!address && !farcasterUser?.fid) {
-      const savedGuestId = localStorage.getItem('snake_guest_id');
-      if (savedGuestId) {
-        guestId = savedGuestId;
-      } else {
-        guestId = crypto.randomUUID();
-        localStorage.setItem('snake_guest_id', guestId);
-      }
+    let previousGuestId = null;
+    
+    if (!isLoggedIn) {
+      guestId = savedGuestId || crypto.randomUUID();
+      if (!savedGuestId) localStorage.setItem('snake_guest_id', guestId);
     } else {
-      // 🔥 FIX: Jeśli user się zalogował (Farcaster lub Wallet), wyczyść guestId
-      // To zapobiega tworzeniu duplikatów na mobile
-      localStorage.removeItem('snake_guest_id');
+      // jeśli wcześniej grał jako guest na tym urządzeniu, przekaż do merge
+      previousGuestId = savedGuestId || null;
     }
     
     const canonicalId = await syncPlayerProfile({
       farcasterFid: farcasterUser?.fid,
       walletAddress: address,
       guestId: guestId,
+      previousGuestId: previousGuestId,
       username: farcasterUser?.username,
       avatarUrl: farcasterUser?.pfpUrl,
     });
     
     console.log('🔑 Current Canonical ID set to:', canonicalId);
     setCurrentCanonicalId(canonicalId);
+    
+    // dopiero po udanym sync/merge czyścimy guestId, żeby nie tworzyć kolejnych guest profili po zalogowaniu
+    if (isLoggedIn && canonicalId) {
+      localStorage.removeItem('snake_guest_id');
+    }
 
     // Pobierz statystyki (używamy canonicalId jeśli dostępny, inaczej address)
     // Total Apples i Total Games są globalne i nie zależą od trybu
@@ -142,7 +156,7 @@ function App() {
     setBestScore(getBestScore(gameMode));
   };
   initProfile();
-}, [isConnected, address, farcasterUser]); // ❌ USUNIĘTE gameMode - nie resetuj statystyk przy zmianie trybu
+}, [isConnected, address, farcasterUser, isSDKLoaded]); // ❌ USUNIĘTE gameMode - nie resetuj statystyk przy zmianie trybu
 
   // Osobny useEffect tylko dla aktualizacji bestScore przy zmianie trybu
   useEffect(() => {

@@ -620,7 +620,7 @@ export const clearLeaderboard = (keyName) => {
  * @returns {Promise<string>} - canonical_user_id gracza
  */
 export const syncPlayerProfile = async (identity) => {
-  const { farcasterFid, walletAddress, guestId, username, avatarUrl } = identity;
+  const { farcasterFid, walletAddress, guestId, previousGuestId, username, avatarUrl } = identity;
   
   // 1. Określ user_id i canonical_user_id (priorytet)
   let userId, canonicalUserId, displayName, defaultAvatar;
@@ -700,7 +700,21 @@ export const syncPlayerProfile = async (identity) => {
             .neq('user_id', `fc:${farcasterFid}`);
         }
         
-        console.log('✅ Merged wallet into Farcaster profile');
+        // 🔥 Jeśli wcześniej na tym urządzeniu był guest, też go scalamy do konta FC
+        if (previousGuestId) {
+          const guestUserId = `guest:${previousGuestId}`;
+          await supabase
+            .from('game_sessions')
+            .update({ user_id: `fc:${farcasterFid}` })
+            .eq('user_id', guestUserId);
+          
+          await supabase
+            .from('player_profiles')
+            .delete()
+            .eq('user_id', guestUserId);
+        }
+
+        console.log('✅ Merged wallet (and possible guest) into Farcaster profile');
         return fcProfile.canonical_user_id;
       }
       
@@ -714,6 +728,12 @@ export const syncPlayerProfile = async (identity) => {
       if (walletProfile) {
         // Wallet profil istnieje - UPDATE z Farcaster info
         console.log('✅ Found existing Wallet profile - upgrading to Farcaster');
+        // Najpierw przenieś sesje z wallet user_id -> fc user_id (bo zaraz zmienimy user_id w profilu)
+        await supabase
+          .from('game_sessions')
+          .update({ user_id: userId })
+          .eq('user_id', walletAddress.toLowerCase());
+
         await supabase
           .from('player_profiles')
           .update({
@@ -725,6 +745,20 @@ export const syncPlayerProfile = async (identity) => {
             avatar_url: avatarUrl || walletProfile.avatar_url,
           })
           .eq('user_id', walletAddress.toLowerCase());
+        
+        // 🔥 Jeśli wcześniej na tym urządzeniu był guest, też go scalamy do konta FC
+        if (previousGuestId) {
+          const guestUserId = `guest:${previousGuestId}`;
+          await supabase
+            .from('game_sessions')
+            .update({ user_id: userId })
+            .eq('user_id', guestUserId);
+          
+          await supabase
+            .from('player_profiles')
+            .delete()
+            .eq('user_id', guestUserId);
+        }
         
         console.log('✅ Upgraded wallet profile to Farcaster');
         return canonicalUserId;
@@ -749,6 +783,20 @@ export const syncPlayerProfile = async (identity) => {
           farcaster_username: username || existing.farcaster_username,
         })
         .eq('user_id', userId);
+      
+      // 🔥 Jeśli user się zalogował, a wcześniej był guest na tym urządzeniu – przenieś sesje guest -> to konto
+      if (previousGuestId && (farcasterFid || walletAddress)) {
+        const guestUserId = `guest:${previousGuestId}`;
+        await supabase
+          .from('game_sessions')
+          .update({ user_id: userId })
+          .eq('user_id', guestUserId);
+        
+        await supabase
+          .from('player_profiles')
+          .delete()
+          .eq('user_id', guestUserId);
+      }
       
       return existing.canonical_user_id;
     }
@@ -784,6 +832,20 @@ export const syncPlayerProfile = async (identity) => {
       });
 
     if (insertError) throw insertError;
+
+    // 🔥 Jeśli właśnie tworzymy konto zalogowane, a wcześniej był guest na tym urządzeniu – przenieś sesje guest -> to konto
+    if (previousGuestId && (farcasterFid || walletAddress)) {
+      const guestUserId = `guest:${previousGuestId}`;
+      await supabase
+        .from('game_sessions')
+        .update({ user_id: userId })
+        .eq('user_id', guestUserId);
+      
+      await supabase
+        .from('player_profiles')
+        .delete()
+        .eq('user_id', guestUserId);
+    }
     
     console.log('✅ Player profile synced:', { userId, canonicalUserId });
     return canonicalUserId;
