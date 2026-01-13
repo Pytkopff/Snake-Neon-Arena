@@ -50,6 +50,8 @@ function App() {
   const [unlockedSkins, setUnlockedSkins] = useState(['default']);
   const [currentSkinId, setCurrentSkinId] = useState(getSelectedSkin());
   const [currentCanonicalId, setCurrentCanonicalId] = useState(null);
+  const prevWalletConnectedRef = useRef(false);
+  const prevWalletAddressRef = useRef(null);
 
   // Game State
   const [isPlaying, setIsPlaying] = useState(false);
@@ -157,6 +159,56 @@ function App() {
   };
   initProfile();
 }, [isConnected, address, farcasterUser, isSDKLoaded]); // ❌ USUNIĘTE gameMode - nie resetuj statystyk przy zmianie trybu
+
+  // ============================================
+  // 🔒 SECURITY FIX: Reset Guest Identity on Wallet Disconnect
+  // ============================================
+  // Exploit prevented:
+  // - Guest plays, gets high score, connects Wallet A -> merges
+  // - Disconnect Wallet A -> app becomes guest but reuses old snake_guest_id
+  // - Connect Wallet B -> merges the same old guest sessions into Wallet B
+  //
+  // Desired behavior:
+  // - On wallet disconnect (and no Farcaster login), create a fresh guest identity
+  // - Reset local progress to avoid "score farming" via repeated merges
+  useEffect(() => {
+    const wasConnected = prevWalletConnectedRef.current;
+    const wasAddress = prevWalletAddressRef.current;
+    const isNowDisconnected = wasConnected && !isConnected && Boolean(wasAddress);
+    const hasFarcasterLogin = Boolean(farcasterUser?.fid);
+
+    if (isNowDisconnected && !hasFarcasterLogin) {
+      console.log('🧹 Wallet disconnected: resetting guest identity + local progress (anti-exploit)');
+
+      // 1) Fresh guest identity
+      localStorage.removeItem('snake_guest_id');
+      const newGuestId = crypto.randomUUID();
+      localStorage.setItem('snake_guest_id', newGuestId);
+
+      // 2) Reset local progress (treat as a brand new guest)
+      [
+        'snake_total_apples',
+        'snake_total_games',
+        'snake_best_score',
+        'snake_best_score_walls',
+        'snake_best_score_chill',
+        'snake_leaderboard',
+        'snake_leaderboard_60s',
+        'snake_leaderboard_chill'
+      ].forEach(k => localStorage.removeItem(k));
+
+      // 3) Reset in-memory UI/game state
+      setIsPlaying(false);
+      setIsPaused(true);
+      setUnlockedSkins(['default']);
+      setPlayerStats({ totalApples: 0, totalGames: 0, bestScore: 0, bestScoreClassic: 0, bestScoreWalls: 0, bestScoreChill: 0 });
+      setBestScore(0);
+      setCurrentCanonicalId(null);
+    }
+
+    prevWalletConnectedRef.current = isConnected;
+    prevWalletAddressRef.current = address || null;
+  }, [isConnected, address, farcasterUser]);
 
   // Osobny useEffect tylko dla aktualizacji bestScore przy zmianie trybu
   useEffect(() => {
