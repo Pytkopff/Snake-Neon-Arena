@@ -51,8 +51,40 @@ const GlobalLeaderboard = ({ onClose, defaultTab = 'classic', currentCanonicalId
     return `https://api.dicebear.com/7.x/bottts-neutral/svg?seed=${player.canonical_user_id}&backgroundColor=0a0e27`;
   };
 
+  const formatWallet = (addr) => {
+    if (!addr) return 'Wallet';
+    const a = String(addr);
+    if (a.length <= 10) return a;
+    return `${a.slice(0, 6)}...${a.slice(-4)}`;
+  };
+
+  const formatGuest = (id) => {
+    if (!id) return 'Guest';
+    const s = String(id);
+    const last4 = s.slice(-4);
+    return `Guest #${last4}`;
+  };
+
   const getDisplayLabel = (player) => {
-    if (player.display_name && player.display_name !== 'Guest Player') {
+    const cid = String(player?.canonical_user_id || '');
+    
+    // 1) Farcaster user: keep display_name as-is (e.g. "pytek")
+    if (cid.startsWith('fc:')) {
+      return player.display_name || 'Farcaster';
+    }
+    
+    // 2) Wallet user: show shortened address (even if display_name is generic like "PlayerOne")
+    if (cid.startsWith('0x') || cid.startsWith('0X')) {
+      return formatWallet(cid.toLowerCase());
+    }
+    
+    // 3) Guest: show Guest # + last 4 chars
+    if (cid.startsWith('guest:')) {
+      return formatGuest(cid);
+    }
+    
+    // Fallback: if DB gives a custom name, show it; otherwise generic
+    if (player.display_name && player.display_name !== 'Guest Player' && player.display_name !== 'PlayerOne') {
       return player.display_name;
     }
     return 'Anonymous';
