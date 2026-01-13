@@ -9,6 +9,18 @@ const VirtualDPad = ({ onDirectionChange, isVisible, size = 160 }) => {
 
   if (!isVisible) return null;
 
+  // Ukryj D-pad na Desktopie: renderujemy go tylko na urządzeniach z dotykiem.
+  // Heurystyka: maxTouchPoints + pointer coarse + ontouchstart (fallback).
+  const isTouchDevice =
+    typeof window !== 'undefined' &&
+    typeof navigator !== 'undefined' &&
+    (navigator.maxTouchPoints > 0 ||
+      ('ontouchstart' in window) ||
+      (typeof window.matchMedia === 'function' &&
+        window.matchMedia('(pointer: coarse)').matches));
+
+  if (!isTouchDevice) return null;
+
   const handleDirection = (e, direction, buttonId) => {
     // 1. Blokujemy domyślne zachowania przeglądarki (scroll, zoom)
     if (e.cancelable && e.preventDefault) {
