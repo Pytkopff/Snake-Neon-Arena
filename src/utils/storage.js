@@ -1021,8 +1021,8 @@ export const claimDaily = async (walletAddress) => {
     return { success: true, reward, newStreak };
   }
 
-  // B. ZALOGOWANY - NOWY SYSTEM: używamy tylko localStorage
-  // Streak jest lokalną funkcją, nie trzeba synchronizować z Supabase
+  // B. ZALOGOWANY - NOWY SYSTEM: używamy tylko localStorage dla streak
+  // ale zapisujemy daily rewards do bazy dla rankingu
   const current = getStorageItem('snake_daily_status', { streak: 0, lastClaim: null });
   const lastDate = current.lastClaim ? new Date(current.lastClaim) : null;
 
@@ -1055,6 +1055,40 @@ export const claimDaily = async (walletAddress) => {
   const gross = Number(getStorageItem('snake_total_apples_gross', nextBalance)) || nextBalance;
   setStorageItem('snake_total_apples_gross', Math.max(gross, nextBalance));
   console.log('🍎 Daily reward claimed:', reward, 'New balance:', nextBalance);
+
+  // 🔥 NOWE: Zapisz daily claim do bazy (dla rankingu)
+  try {
+    // Znajdź canonical_user_id dla tego użytkownika
+    const { data: profile } = await supabase
+      .from('player_profiles')
+      .select('user_id')
+      .eq('wallet_address', walletAddress.toLowerCase())
+      .single();
+    
+    if (profile?.user_id) {
+      // Zapisz claim do bazy
+      const { error: claimError } = await supabase
+        .from('daily_claims')
+        .insert({
+          user_id: profile.user_id,
+          reward: reward,
+          streak_day: newStreak,
+          claimed_at: today
+        });
+      
+      if (claimError) {
+        console.error('❌ Failed to save daily claim to DB:', claimError);
+        // Nie przerywamy - localStorage już został zaktualizowany
+      } else {
+        console.log('✅ Daily claim saved to DB:', { reward, streak_day: newStreak });
+      }
+    } else {
+      console.warn('⚠️ No profile found for wallet:', walletAddress);
+    }
+  } catch (error) {
+    console.error('❌ Error saving daily claim to DB:', error);
+    // Nie przerywamy - localStorage już został zaktualizowany
+  }
 
   return { success: true, reward, newStreak };
 };
@@ -1097,6 +1131,34 @@ export const repairStreakWithApples = async (walletAddress) => {
         streak: current.streak, // Zachowaj obecny streak
         lastClaim: yesterday.toISOString() // Ustaw na "wczoraj", żeby dzisiaj mógł claimować
     });
+    
+    // 🔥 NOWE: Zapisz wydatek do bazy (dla rankingu)
+    try {
+        const { data: profile } = await supabase
+            .from('player_profiles')
+            .select('user_id')
+            .eq('wallet_address', walletAddress.toLowerCase())
+            .single();
+        
+        if (profile?.user_id) {
+            const { error: transactionError } = await supabase
+                .from('apple_transactions')
+                .insert({
+                    user_id: profile.user_id,
+                    amount: -cost, // ujemna wartość = wydatek
+                    transaction_type: 'repair_streak',
+                    description: `Repaired streak at day ${current.streak}`
+                });
+            
+            if (transactionError) {
+                console.error('❌ Failed to save repair transaction to DB:', transactionError);
+            } else {
+                console.log('✅ Repair transaction saved to DB:', { amount: -cost });
+            }
+        }
+    } catch (error) {
+        console.error('❌ Error saving repair transaction to DB:', error);
+    }
     
     console.log('✅ Streak repaired successfully! User can now claim today.');
     return true;
