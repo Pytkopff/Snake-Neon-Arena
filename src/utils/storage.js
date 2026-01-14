@@ -388,12 +388,19 @@ export const updatePlayerStats = async (applesInGame, score, walletAddress, mode
   // Aktualizujemy best score lokalnie
   updateBestScore(score, mode);
   
-  // Dla gości (bez walletAddress) aktualizujemy localStorage bezpośrednio
-  // Dla zalogowanych użytkowników dane będą z bazy przez getPlayerStats
+  // 🔥 NOWE: Aktualizuj gross dla WSZYSTKICH (goście + zalogowani)
+  // To jest potrzebne, żeby getPlayerStats() miało aktualne dane do max(local, db)
+  const currentGross = Math.max(0, Number(getStorageItem('snake_total_apples_gross', 0)) || 0);
+  const currentSpent = Math.max(0, Number(getStorageItem('snake_apples_spent', 0)) || 0);
+  const newGross = currentGross + applesInGame;
+  const newBalance = Math.max(0, newGross - currentSpent);
+  
+  setStorageItem('snake_total_apples_gross', newGross);
+  setStorageItem(STORAGE_KEYS.TOTAL_APPLES, newBalance);
+  
+  // Dla gości aktualizujemy też total games
   if (!walletAddress) {
-    const currentTotalApples = getStorageItem(STORAGE_KEYS.TOTAL_APPLES, 0);
     const currentTotalGames = getStorageItem(STORAGE_KEYS.TOTAL_GAMES, 0);
-    setStorageItem(STORAGE_KEYS.TOTAL_APPLES, currentTotalApples + applesInGame);
     setStorageItem(STORAGE_KEYS.TOTAL_GAMES, currentTotalGames + 1);
   } 
 
