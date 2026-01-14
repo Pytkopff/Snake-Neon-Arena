@@ -175,11 +175,17 @@ export const getPlayerStats = async (walletAddress, canonicalId = null) => {
   const localBestClassic = getStorageItem(STORAGE_KEYS.BEST_SCORE, 0);
   const localBestWalls = getStorageItem('snake_best_score_walls', 0);
   const localBestChill = getStorageItem('snake_best_score_chill', 0);
-  const localTotalApples = getStorageItem(STORAGE_KEYS.TOTAL_APPLES, 0);
+  // 🍎 Apples balance model:
+  // - STORAGE_KEYS.TOTAL_APPLES: current spendable balance (can go down)
+  // - snake_total_apples_gross: monotonic "earned" counter used for cross-device max() (never goes down)
+  // - snake_apples_spent: monotonic "spent" counter (never goes down)
+  const localAppleBalance = getStorageItem(STORAGE_KEYS.TOTAL_APPLES, 0);
+  const localAppleGross = getStorageItem('snake_total_apples_gross', localAppleBalance);
+  const localApplesSpent = getStorageItem('snake_apples_spent', 0);
 
   // 2. Budujemy obiekt statystyk (startujemy z lokalnych wartości)
   let stats = {
-    totalApples: localTotalApples,
+    totalApples: Math.max(0, Number(localAppleBalance) || 0),
     totalGames: getStorageItem(STORAGE_KEYS.TOTAL_GAMES, 0),
     bestScore: Math.max(localBestClassic, localBestWalls, localBestChill),
     
@@ -230,25 +236,30 @@ export const getPlayerStats = async (walletAddress, canonicalId = null) => {
         bestScoreClassic: Math.max(localBestClassic, dbScores.bestScoreClassic),
         bestScoreWalls: Math.max(localBestWalls, dbScores.bestScoreWalls),
         bestScoreChill: Math.max(localBestChill, dbScores.bestScoreChill),
-        totalApples: Math.max(localTotalApples, dbScores.totalApples)
+        totalApplesGross: Math.max(Number(localAppleGross) || 0, Number(dbScores.totalApples) || 0)
       };
+
+      const resolvedApplesSpent = Math.max(0, Number(localApplesSpent) || 0);
+      const resolvedAppleBalance = Math.max(0, resolvedScores.totalApplesGross - resolvedApplesSpent);
       
       // Zapisz rozwiązane wartości do localStorage (priorytet dla wyższych)
       setStorageItem(STORAGE_KEYS.BEST_SCORE, resolvedScores.bestScoreClassic);
       setStorageItem('snake_best_score_walls', resolvedScores.bestScoreWalls);
       setStorageItem('snake_best_score_chill', resolvedScores.bestScoreChill);
-      setStorageItem(STORAGE_KEYS.TOTAL_APPLES, resolvedScores.totalApples);
+      setStorageItem('snake_total_apples_gross', resolvedScores.totalApplesGross);
+      setStorageItem('snake_apples_spent', resolvedApplesSpent);
+      setStorageItem(STORAGE_KEYS.TOTAL_APPLES, resolvedAppleBalance);
       setStorageItem(STORAGE_KEYS.TOTAL_GAMES, gameCount);
       
       console.log('✅ Resolved scores (local vs DB):', {
         classic: { local: localBestClassic, db: dbScores.bestScoreClassic, resolved: resolvedScores.bestScoreClassic },
         walls: { local: localBestWalls, db: dbScores.bestScoreWalls, resolved: resolvedScores.bestScoreWalls },
         chill: { local: localBestChill, db: dbScores.bestScoreChill, resolved: resolvedScores.bestScoreChill },
-        apples: { local: localTotalApples, db: dbScores.totalApples, resolved: resolvedScores.totalApples }
+        apples: { local: localAppleGross, db: dbScores.totalApples, gross: resolvedScores.totalApplesGross, spent: resolvedApplesSpent, balance: resolvedAppleBalance }
       });
       
       stats = {
-        totalApples: resolvedScores.totalApples,
+        totalApples: resolvedAppleBalance,
         totalGames: gameCount,
         bestScore: Math.max(resolvedScores.bestScoreClassic, resolvedScores.bestScoreWalls, resolvedScores.bestScoreChill),
         bestScoreClassic: resolvedScores.bestScoreClassic,
@@ -302,25 +313,30 @@ export const getPlayerStats = async (walletAddress, canonicalId = null) => {
           bestScoreClassic: Math.max(localBestClassic, dbScores.bestScoreClassic),
           bestScoreWalls: Math.max(localBestWalls, dbScores.bestScoreWalls),
           bestScoreChill: Math.max(localBestChill, dbScores.bestScoreChill),
-          totalApples: Math.max(localTotalApples, dbScores.totalApples)
+          totalApplesGross: Math.max(Number(localAppleGross) || 0, Number(dbScores.totalApples) || 0)
         };
+
+        const resolvedApplesSpent = Math.max(0, Number(localApplesSpent) || 0);
+        const resolvedAppleBalance = Math.max(0, resolvedScores.totalApplesGross - resolvedApplesSpent);
         
         // Zapisz rozwiązane wartości do localStorage
         setStorageItem(STORAGE_KEYS.BEST_SCORE, resolvedScores.bestScoreClassic);
         setStorageItem('snake_best_score_walls', resolvedScores.bestScoreWalls);
         setStorageItem('snake_best_score_chill', resolvedScores.bestScoreChill);
-        setStorageItem(STORAGE_KEYS.TOTAL_APPLES, resolvedScores.totalApples);
+        setStorageItem('snake_total_apples_gross', resolvedScores.totalApplesGross);
+        setStorageItem('snake_apples_spent', resolvedApplesSpent);
+        setStorageItem(STORAGE_KEYS.TOTAL_APPLES, resolvedAppleBalance);
         setStorageItem(STORAGE_KEYS.TOTAL_GAMES, gameCount);
         
         console.log('✅ Resolved scores (local vs DB):', {
           classic: { local: localBestClassic, db: dbScores.bestScoreClassic, resolved: resolvedScores.bestScoreClassic },
           walls: { local: localBestWalls, db: dbScores.bestScoreWalls, resolved: resolvedScores.bestScoreWalls },
           chill: { local: localBestChill, db: dbScores.bestScoreChill, resolved: resolvedScores.bestScoreChill },
-          apples: { local: localTotalApples, db: dbScores.totalApples, resolved: resolvedScores.totalApples }
+          apples: { local: localAppleGross, db: dbScores.totalApples, gross: resolvedScores.totalApplesGross, spent: resolvedApplesSpent, balance: resolvedAppleBalance }
         });
         
         stats = {
-          totalApples: resolvedScores.totalApples,
+          totalApples: resolvedAppleBalance,
           totalGames: gameCount,
           bestScore: Math.max(resolvedScores.bestScoreClassic, resolvedScores.bestScoreWalls, resolvedScores.bestScoreChill),
           bestScoreClassic: resolvedScores.bestScoreClassic,
@@ -338,11 +354,15 @@ export const getPlayerStats = async (walletAddress, canonicalId = null) => {
         
         if (dbStats) {
           // Jeśli mamy dane z chmury, nadpisujemy lokalne
-          setStorageItem(STORAGE_KEYS.TOTAL_APPLES, dbStats.total_apples_eaten);
+          // Fallback: traktuj total_apples_eaten jako "gross" i odlicz lokalne wydatki
+          const spent = Math.max(0, Number(getStorageItem('snake_apples_spent', 0)) || 0);
+          const gross = Math.max(0, Number(dbStats.total_apples_eaten) || 0);
+          setStorageItem('snake_total_apples_gross', gross);
+          setStorageItem(STORAGE_KEYS.TOTAL_APPLES, Math.max(0, gross - spent));
           setStorageItem(STORAGE_KEYS.TOTAL_GAMES, dbStats.total_games_played);
           
           stats = {
-              totalApples: dbStats.total_apples_eaten,
+              totalApples: Math.max(0, gross - spent),
               totalGames: dbStats.total_games_played,
               // Ogólny
               bestScore: Math.max(dbStats.highest_score_classic, dbStats.highest_score_walls, dbStats.highest_score_chill),
@@ -966,15 +986,22 @@ export const getDailyStatus = async (walletAddress) => {
 
 export const claimDaily = async (walletAddress) => {
   const today = new Date().toISOString();
+  const now = new Date();
   
   // A. GOŚĆ
   if (!walletAddress) {
-    const current = getStorageItem('snake_daily_status', { streak: 0 });
+    const current = getStorageItem('snake_daily_status', { streak: 0, lastClaim: null });
+    const lastDate = current.lastClaim ? new Date(current.lastClaim) : null;
+
+    // ✅ Guard: nie pozwalaj odebrać drugi raz tego samego dnia
+    if (lastDate && isSameDay(now, lastDate)) {
+      return { success: false, error: 'ALREADY_CLAIMED_TODAY' };
+    }
+
     let newStreak = current.streak + 1;
     
     // Reset jeśli zerwany (gość nie ma opcji naprawy za jabłka bo nie ma bazy)
-    const lastDate = current.lastClaim ? new Date(current.lastClaim) : null;
-    if (lastDate && !isYesterday(new Date(), lastDate) && !isSameDay(new Date(), lastDate)) {
+    if (lastDate && !isYesterday(now, lastDate) && !isSameDay(now, lastDate)) {
         newStreak = 1;
     }
 
@@ -984,22 +1011,35 @@ export const claimDaily = async (walletAddress) => {
     setStorageItem('snake_daily_status', { streak: newStreak, lastClaim: today });
     
     // Dodaj jabłka do portfela gościa
-    const currentApples = getStorageItem(STORAGE_KEYS.TOTAL_APPLES, 0);
-    setStorageItem(STORAGE_KEYS.TOTAL_APPLES, currentApples + reward);
+    const currentApples = Number(getStorageItem(STORAGE_KEYS.TOTAL_APPLES, 0)) || 0;
+    const nextBalance = currentApples + reward;
+    setStorageItem(STORAGE_KEYS.TOTAL_APPLES, nextBalance);
+    // utrzymuj też gross dla spójności modelu
+    const gross = Number(getStorageItem('snake_total_apples_gross', nextBalance)) || nextBalance;
+    setStorageItem('snake_total_apples_gross', Math.max(gross, nextBalance));
 
     return { success: true, reward, newStreak };
   }
 
   // B. ZALOGOWANY - NOWY SYSTEM: używamy tylko localStorage
   // Streak jest lokalną funkcją, nie trzeba synchronizować z Supabase
-  const current = getStorageItem('snake_daily_status', { streak: 0 });
+  const current = getStorageItem('snake_daily_status', { streak: 0, lastClaim: null });
+  const lastDate = current.lastClaim ? new Date(current.lastClaim) : null;
+
+  // ✅ Guard: nie pozwalaj odebrać drugi raz tego samego dnia
+  if (lastDate && isSameDay(now, lastDate)) {
+    return { success: false, error: 'ALREADY_CLAIMED_TODAY' };
+  }
+
+  // ✅ Guard: jeśli streak zerwany (missed), nie pozwalaj claimować - trzeba naprawić albo zresetować
+  if (lastDate && !isYesterday(now, lastDate) && !isSameDay(now, lastDate) && current.streak > 0) {
+    return { success: false, error: 'STREAK_MISSED' };
+  }
+
   let newStreak = current.streak + 1;
   
   // Reset jeśli zerwany
-  const lastDate = current.lastClaim ? new Date(current.lastClaim) : null;
-  if (lastDate && !isYesterday(new Date(), lastDate) && !isSameDay(new Date(), lastDate)) {
-      newStreak = 1;
-  }
+  // (dla zalogowanych już zablokowane powyżej — nie resetujemy tutaj)
 
   const rewardIndex = (newStreak - 1) % 7;
   const reward = DAILY_REWARDS[rewardIndex];
@@ -1008,9 +1048,13 @@ export const claimDaily = async (walletAddress) => {
   setStorageItem('snake_daily_status', { streak: newStreak, lastClaim: today });
   
   // Dodaj jabłka do localStorage
-  const currentApples = getStorageItem(STORAGE_KEYS.TOTAL_APPLES, 0);
-  setStorageItem(STORAGE_KEYS.TOTAL_APPLES, currentApples + reward);
-  console.log('🍎 Daily reward claimed:', reward, 'New total:', currentApples + reward);
+  const currentApples = Number(getStorageItem(STORAGE_KEYS.TOTAL_APPLES, 0)) || 0;
+  const nextBalance = currentApples + reward;
+  setStorageItem(STORAGE_KEYS.TOTAL_APPLES, nextBalance);
+  // gross rośnie monotonicznie (potrzebne, żeby wydatki nie "wracały" po syncu z DB)
+  const gross = Number(getStorageItem('snake_total_apples_gross', nextBalance)) || nextBalance;
+  setStorageItem('snake_total_apples_gross', Math.max(gross, nextBalance));
+  console.log('🍎 Daily reward claimed:', reward, 'New balance:', nextBalance);
 
   return { success: true, reward, newStreak };
 };
@@ -1020,8 +1064,9 @@ export const repairStreakWithApples = async (walletAddress) => {
 
     const cost = 500;
     
-    // Sprawdź ile ma jabłek w localStorage
-    let currentApples = getStorageItem(STORAGE_KEYS.TOTAL_APPLES, 0);
+    // Sprawdź ile ma jabłek - użyj tego samego źródła co UI (getPlayerStats), żeby nie było rozjazdu z DB.
+    const stats = await getPlayerStats(walletAddress);
+    const currentApples = Math.max(0, Number(stats?.totalApples) || 0);
     console.log(`🍎 Daily Check-in: Repair attempt. User has: ${currentApples}, Need: ${cost}`);
     
     if (currentApples < cost) {
@@ -1029,8 +1074,19 @@ export const repairStreakWithApples = async (walletAddress) => {
         return false;
     }
 
-    // Odejmij 500 jabłek
-    setStorageItem(STORAGE_KEYS.TOTAL_APPLES, currentApples - cost);
+    // Odejmij 500 jabłek (przez ledger "spent", żeby koszt nie znikał po późniejszym max(local, db))
+    const prevSpent = Math.max(0, Number(getStorageItem('snake_apples_spent', 0)) || 0);
+    const nextSpent = prevSpent + cost;
+    setStorageItem('snake_apples_spent', nextSpent);
+
+    // Utrzymuj spójne saldo w localStorage
+    // Liczymy gross jako: saldo aktualny + już wydane jabłka
+    const gross = Math.max(0, Number(getStorageItem('snake_total_apples_gross', 0)) || 0);
+    // Jeśli gross jest 0 (pierwszy run), ustawiamy go na currentApples + prevSpent
+    const finalGross = gross > 0 ? gross : (currentApples + prevSpent);
+    const nextBalance = Math.max(0, finalGross - nextSpent);
+    setStorageItem('snake_total_apples_gross', finalGross);
+    setStorageItem(STORAGE_KEYS.TOTAL_APPLES, nextBalance);
     
     // Napraw streak w localStorage (resetujemy lastClaim, żeby mógł teraz claimować)
     const current = getStorageItem('snake_daily_status', { streak: 0 });

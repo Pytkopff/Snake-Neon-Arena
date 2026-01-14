@@ -28,21 +28,42 @@ const DailyCheckIn = ({ onClose, walletAddress, onRewardClaimed }) => {
   };
 
   const handleClaim = async () => {
+    if (claiming) return; // Blokada przed spam-klikaniem
     setClaiming(true);
     const result = await claimDaily(walletAddress);
     if (result.success) {
         if (onRewardClaimed) onRewardClaimed(result.reward);
         // Po sukcesie zamykamy okno po krótkim opóźnieniu dla efektu
         setTimeout(() => onClose(), 2000);
+    } else {
+        console.error('❌ Claim failed:', result.error);
+        // Jeśli błąd to already_claimed_today, możemy pokazać komunikat
+        if (result.error === 'ALREADY_CLAIMED_TODAY') {
+            setErrorMsg('You already claimed today! 🎁');
+        } else if (result.error === 'STREAK_MISSED') {
+            setErrorMsg('Streak broken! Repair or reset first.');
+            await loadData(); // Odśwież status, żeby pokazać opcje naprawy
+        }
     }
     setClaiming(false);
   };
 
   const handleRepair = async () => {
+    if (claiming) return; // Blokada przed spam-klikaniem
     setClaiming(true);
     setErrorMsg('');
     
-    console.log('🔧 Attempting to repair streak. User has:', userApples, 'apples');
+    // Odśwież saldo jabłek PRZED wywołaniem repair (żeby mieć aktualne dane)
+    const freshStats = await getPlayerStats(walletAddress);
+    const freshApples = freshStats.totalApples;
+    console.log('🔧 Attempting to repair streak. User has:', freshApples, 'apples (fresh)');
+    
+    if (freshApples < 500) {
+        console.error('❌ Repair blocked - not enough apples');
+        setErrorMsg(`Not enough apples! Need 500 🍎 (You have: ${freshApples})`);
+        setClaiming(false);
+        return;
+    }
     
     const success = await repairStreakWithApples(walletAddress);
     
@@ -50,13 +71,14 @@ const DailyCheckIn = ({ onClose, walletAddress, onRewardClaimed }) => {
         console.log('✅ Streak repaired!');
         await loadData(); // Odświeżamy - teraz powinno być "canClaim: true"
     } else {
-        console.error('❌ Repair failed - not enough apples');
-        setErrorMsg('Not enough apples! Need 500 🍎');
+        console.error('❌ Repair failed unexpectedly');
+        setErrorMsg('Repair failed! Please try again.');
     }
     setClaiming(false);
   };
 
   const handleReset = async () => {
+      if (claiming) return; // Blokada przed spam-klikaniem
       setClaiming(true);
       await resetStreakToZero(walletAddress);
       await loadData();
