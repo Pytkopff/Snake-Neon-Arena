@@ -68,25 +68,31 @@ const GlobalLeaderboard = ({ onClose, defaultTab = 'classic', currentCanonicalId
   const getDisplayLabel = (player) => {
     const cid = String(player?.canonical_user_id || '');
     
-    // 1) Farcaster user: keep display_name as-is (e.g. "pytek")
-    if (cid.startsWith('fc:')) {
-      return player.display_name || 'Farcaster';
+    // 1) Jeśli mamy display_name z Farcastera (nie generyczne), użyj go ZAWSZE
+    if (player.display_name && 
+        player.display_name !== 'Guest Player' && 
+        player.display_name !== 'PlayerOne' &&
+        player.display_name !== 'Wallet User' &&
+        !player.display_name.startsWith('0x')) {
+      return player.display_name;
     }
     
-    // 2) Wallet user: show shortened address (even if display_name is generic like "PlayerOne")
+    // 2) Farcaster user bez display_name: fallback
+    if (cid.startsWith('fc:')) {
+      return 'Farcaster';
+    }
+    
+    // 3) Wallet user: pokaż skrócony adres
     if (cid.startsWith('0x') || cid.startsWith('0X')) {
       return formatWallet(cid.toLowerCase());
     }
     
-    // 3) Guest: show Guest # + last 4 chars
+    // 4) Guest: show Guest # + last 4 chars
     if (cid.startsWith('guest:')) {
       return formatGuest(cid);
     }
     
-    // Fallback: if DB gives a custom name, show it; otherwise generic
-    if (player.display_name && player.display_name !== 'Guest Player' && player.display_name !== 'PlayerOne') {
-      return player.display_name;
-    }
+    // Fallback
     return 'Anonymous';
   };
 
@@ -175,7 +181,7 @@ const GlobalLeaderboard = ({ onClose, defaultTab = 'classic', currentCanonicalId
                         <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-inherit border-2 border-[#0a0e27] flex items-center justify-center text-[10px] font-bold text-black">{i + 1}</div>
                       </div>
                       <span className={`text-[10px] font-bold truncate max-w-[80px] text-center ${isYou ? 'text-neon-blue' : 'text-white'}`}>
-                        {isYou ? '⭐ YOU' : getDisplayLabel(player)}
+                        {getDisplayLabel(player)}
                       </span>
                       <span className="text-xs font-mono text-neon-blue">{getScoreValue(player).toLocaleString()}</span>
                     </motion.div>
@@ -194,7 +200,7 @@ const GlobalLeaderboard = ({ onClose, defaultTab = 'classic', currentCanonicalId
                         <img src={getAvatar(player)} className={`w-8 h-8 rounded-full border ${isYou ? 'border-neon-blue' : 'border-white/10'}`} alt="avatar" />
                         <div className="flex flex-col">
                           <span className={`text-sm font-bold ${isYou ? 'text-neon-blue' : 'text-white'}`}>
-                            {isYou ? '⭐ YOU' : getDisplayLabel(player)}
+                            {getDisplayLabel(player)}
                             {isYou && <span className="ml-2 text-[8px] bg-neon-blue text-black px-1 rounded uppercase font-black">Online</span>}
                           </span>
                           {isYou && <span className="text-[9px] text-neon-blue/60 uppercase tracking-tighter">Your current position</span>}
