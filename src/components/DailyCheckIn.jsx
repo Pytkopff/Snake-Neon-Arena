@@ -225,6 +225,18 @@ const DailyCheckIn = ({ onClose, walletAddress, canonicalId, onRewardClaimed }) 
             >
                 ✕
             </button>
+
+            {/* 🔧 DEBUG: Reset Button (tylko dla testów) */}
+            <button
+                onClick={() => {
+                    localStorage.removeItem('snake_daily_status');
+                    console.log('🔧 DEBUG: Daily status zresetowany!');
+                    loadData();
+                }}
+                className="absolute bottom-4 left-4 text-[8px] text-gray-600 hover:text-yellow-400 px-2 py-1 bg-black/50 rounded"
+            >
+                🔧 RESET
+            </button>
         </motion.div>
       </motion.div>
     </AnimatePresence>

@@ -47,6 +47,6 @@ SELECT
   apples_eaten,
   created_at
 FROM game_sessions
-WHERE user_id = 'WPISZ_TUTAJ_CANONICAL_ID_Z_KROKU_1'
+WHERE user_id = 'fc:543636'
   AND created_at > NOW() - INTERVAL '24 hours'
 ORDER BY created_at DESC;
