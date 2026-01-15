@@ -232,23 +232,26 @@ export const getPlayerStats = async (walletAddress, canonicalId = null) => {
         console.error('Background sync failed:', err)
       );
       
+      // 🔥 NOWE: Dla zalogowanych użytkowników, BAZA jest źródłem prawdy
+      // Używamy max() tylko dla scores (żeby nie stracić offline progress)
+      // Ale dla jabłek używamy TYLKO bazy (bo ranking liczy z bazy)
       const resolvedScores = {
         bestScoreClassic: Math.max(localBestClassic, dbScores.bestScoreClassic),
         bestScoreWalls: Math.max(localBestWalls, dbScores.bestScoreWalls),
         bestScoreChill: Math.max(localBestChill, dbScores.bestScoreChill),
-        totalApplesGross: Math.max(Number(localAppleGross) || 0, Number(dbScores.totalApples) || 0)
+        totalApplesGross: dbScores.totalApples  // ✅ Użyj TYLKO bazy (nie max!)
       };
 
-      const resolvedApplesSpent = Math.max(0, Number(localApplesSpent) || 0);
-      const resolvedAppleBalance = Math.max(0, resolvedScores.totalApplesGross - resolvedApplesSpent);
+      const resolvedApplesSpent = 0;  // ✅ Reset spent (wydatki są w apple_transactions w bazie)
+      const resolvedAppleBalance = Math.max(0, Number(dbScores.totalApples) || 0);  // ✅ Bezpośrednio z bazy
       
-      // Zapisz rozwiązane wartości do localStorage (priorytet dla wyższych)
+      // 🔥 Zapisz rozwiązane wartości do localStorage (NADPISZ starymi danymi z bazy)
       setStorageItem(STORAGE_KEYS.BEST_SCORE, resolvedScores.bestScoreClassic);
       setStorageItem('snake_best_score_walls', resolvedScores.bestScoreWalls);
       setStorageItem('snake_best_score_chill', resolvedScores.bestScoreChill);
-      setStorageItem('snake_total_apples_gross', resolvedScores.totalApplesGross);
-      setStorageItem('snake_apples_spent', resolvedApplesSpent);
-      setStorageItem(STORAGE_KEYS.TOTAL_APPLES, resolvedAppleBalance);
+      setStorageItem('snake_total_apples_gross', resolvedScores.totalApplesGross);  // Baza = prawda
+      setStorageItem('snake_apples_spent', 0);  // Reset (wydatki są w bazie)
+      setStorageItem(STORAGE_KEYS.TOTAL_APPLES, resolvedAppleBalance);  // Baza = prawda
       setStorageItem(STORAGE_KEYS.TOTAL_GAMES, gameCount);
       
       console.log('✅ Resolved scores (local vs DB):', {
@@ -309,22 +312,23 @@ export const getPlayerStats = async (walletAddress, canonicalId = null) => {
           console.error('Background sync failed:', err)
         );
         
+        // 🔥 NOWE: Dla zalogowanych, BAZA jest źródłem prawdy dla jabłek
         const resolvedScores = {
           bestScoreClassic: Math.max(localBestClassic, dbScores.bestScoreClassic),
           bestScoreWalls: Math.max(localBestWalls, dbScores.bestScoreWalls),
           bestScoreChill: Math.max(localBestChill, dbScores.bestScoreChill),
-          totalApplesGross: Math.max(Number(localAppleGross) || 0, Number(dbScores.totalApples) || 0)
+          totalApplesGross: dbScores.totalApples  // ✅ Użyj TYLKO bazy (nie max!)
         };
 
-        const resolvedApplesSpent = Math.max(0, Number(localApplesSpent) || 0);
-        const resolvedAppleBalance = Math.max(0, resolvedScores.totalApplesGross - resolvedApplesSpent);
+        const resolvedApplesSpent = 0;  // ✅ Reset spent (wydatki są w bazie)
+        const resolvedAppleBalance = Math.max(0, Number(dbScores.totalApples) || 0);  // ✅ Bezpośrednio z bazy
         
-        // Zapisz rozwiązane wartości do localStorage
+        // Zapisz rozwiązane wartości do localStorage (NADPISZ starymi danymi z bazy)
         setStorageItem(STORAGE_KEYS.BEST_SCORE, resolvedScores.bestScoreClassic);
         setStorageItem('snake_best_score_walls', resolvedScores.bestScoreWalls);
         setStorageItem('snake_best_score_chill', resolvedScores.bestScoreChill);
         setStorageItem('snake_total_apples_gross', resolvedScores.totalApplesGross);
-        setStorageItem('snake_apples_spent', resolvedApplesSpent);
+        setStorageItem('snake_apples_spent', 0);  // Reset spent
         setStorageItem(STORAGE_KEYS.TOTAL_APPLES, resolvedAppleBalance);
         setStorageItem(STORAGE_KEYS.TOTAL_GAMES, gameCount);
         
