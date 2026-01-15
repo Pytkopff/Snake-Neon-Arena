@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getDailyStatus, claimDaily, repairStreakWithApples, resetStreakToZero, DAILY_REWARDS, getPlayerStats } from '../utils/storage';
 
-const DailyCheckIn = ({ onClose, walletAddress, onRewardClaimed }) => {
+const DailyCheckIn = ({ onClose, walletAddress, canonicalId, onRewardClaimed }) => {
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(true);
   const [claiming, setClaiming] = useState(false);
@@ -20,7 +20,7 @@ const DailyCheckIn = ({ onClose, walletAddress, onRewardClaimed }) => {
     setStatus(s);
     
     // ZAWSZE pobieraj aktualny stan jabłek (nie tylko gdy isMissed)
-    const stats = await getPlayerStats(walletAddress);
+    const stats = await getPlayerStats(walletAddress, canonicalId);
     setUserApples(stats.totalApples);
     console.log('🍎 Daily Check-in: User has', stats.totalApples, 'apples');
     
@@ -54,7 +54,7 @@ const DailyCheckIn = ({ onClose, walletAddress, onRewardClaimed }) => {
     setErrorMsg('');
     
     // Odśwież saldo jabłek PRZED wywołaniem repair (żeby mieć aktualne dane)
-    const freshStats = await getPlayerStats(walletAddress);
+    const freshStats = await getPlayerStats(walletAddress, canonicalId);
     const freshApples = freshStats.totalApples;
     console.log('🔧 Attempting to repair streak. User has:', freshApples, 'apples (fresh)');
     
@@ -65,7 +65,7 @@ const DailyCheckIn = ({ onClose, walletAddress, onRewardClaimed }) => {
         return;
     }
     
-    const success = await repairStreakWithApples(walletAddress);
+    const success = await repairStreakWithApples(walletAddress, canonicalId);
     
     if (success) {
         console.log('✅ Streak repaired!');

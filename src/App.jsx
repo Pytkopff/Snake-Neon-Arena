@@ -672,7 +672,8 @@ function App() {
         )}
         {showDailyCheckIn && (
           <DailyCheckIn
-            walletAddress={address} 
+            walletAddress={address}
+            canonicalId={currentCanonicalId}
             onClose={() => setShowDailyCheckIn(false)}
             onRewardClaimed={(amount) => {
               

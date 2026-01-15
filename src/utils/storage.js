@@ -1100,15 +1100,29 @@ export const claimDaily = async (walletAddress) => {
   return { success: true, reward, newStreak };
 };
 
-export const repairStreakWithApples = async (walletAddress) => {
+export const repairStreakWithApples = async (walletAddress, canonicalId = null) => {
     if (!walletAddress) return false; // Goście nie mogą naprawiać
 
     const cost = 500;
     
-    // Sprawdź ile ma jabłek - użyj tego samego źródła co UI (getPlayerStats), żeby nie było rozjazdu z DB.
-    const stats = await getPlayerStats(walletAddress);
-    const currentApples = Math.max(0, Number(stats?.totalApples) || 0);
-    console.log(`🍎 Daily Check-in: Repair attempt. User has: ${currentApples}, Need: ${cost}`);
+    // 🔥 NOWE: Sprawdź saldo BEZPOŚREDNIO z bazy (nie localStorage!)
+    // To zapobiega wydawaniu więcej niż gracz faktycznie ma w rankingu
+    let currentApples = 0;
+    
+    if (canonicalId) {
+        // Pobierz z widoku rankingu (to jest źródło prawdy)
+        const { data, error } = await supabase
+            .from('leaderboard_total_apples')
+            .select('total_apples')
+            .eq('canonical_user_id', canonicalId)
+            .single();
+        
+        if (!error && data) {
+            currentApples = Math.max(0, Number(data.total_apples) || 0);
+        }
+    }
+    
+    console.log(`🍎 Daily Check-in: Repair attempt. User has: ${currentApples} (from DB), Need: ${cost}`);
     
     if (currentApples < cost) {
         console.log(`🍎 Daily Check-in: Not enough apples to repair streak. User has: ${currentApples} Need: ${cost}`);
@@ -1140,11 +1154,12 @@ export const repairStreakWithApples = async (walletAddress) => {
     });
     
     // 🔥 NOWE: Zapisz wydatek do bazy (dla rankingu)
+    // Gracz MUSI czuć karę za przegapienie streaka!
     try {
         const { data: profile } = await supabase
             .from('player_profiles')
             .select('user_id')
-            .eq('wallet_address', walletAddress.toLowerCase())
+            .or(`canonical_user_id.eq.${canonicalId},wallet_address.eq.${walletAddress.toLowerCase()}`)
             .single();
         
         if (profile?.user_id) {
@@ -1159,6 +1174,7 @@ export const repairStreakWithApples = async (walletAddress) => {
             
             if (transactionError) {
                 console.error('❌ Failed to save repair transaction to DB:', transactionError);
+                // Nie przerywamy - localStorage już został zaktualizowany
             } else {
                 console.log('✅ Repair transaction saved to DB:', { amount: -cost });
             }
