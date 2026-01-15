@@ -226,17 +226,34 @@ const DailyCheckIn = ({ onClose, walletAddress, canonicalId, onRewardClaimed }) 
                 ✕
             </button>
 
-            {/* 🔧 DEBUG: Reset Button (tylko dla testów) */}
-            <button
-                onClick={() => {
-                    localStorage.removeItem('snake_daily_status');
-                    console.log('🔧 DEBUG: Daily status zresetowany!');
-                    loadData();
-                }}
-                className="absolute bottom-4 left-4 text-[8px] text-gray-600 hover:text-yellow-400 px-2 py-1 bg-black/50 rounded"
-            >
-                🔧 RESET
-            </button>
+            {/* 🔧 DEBUG: Test Buttons (tylko dla testów) */}
+            <div className="absolute bottom-4 left-4 flex gap-2">
+                <button
+                    onClick={() => {
+                        localStorage.removeItem('snake_daily_status');
+                        console.log('🔧 DEBUG: Daily status zresetowany!');
+                        loadData();
+                    }}
+                    className="text-[8px] text-gray-600 hover:text-yellow-400 px-2 py-1 bg-black/50 rounded"
+                >
+                    🔧 RESET
+                </button>
+                <button
+                    onClick={() => {
+                        const twoDaysAgo = new Date();
+                        twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
+                        localStorage.setItem('snake_daily_status', JSON.stringify({
+                            streak: 3,
+                            lastClaim: twoDaysAgo.toISOString()
+                        }));
+                        console.log('🔧 DEBUG: Ustawiono missed day (streak broken)');
+                        loadData();
+                    }}
+                    className="text-[8px] text-gray-600 hover:text-red-400 px-2 py-1 bg-black/50 rounded"
+                >
+                    🔧 MISS
+                </button>
+            </div>
         </motion.div>
       </motion.div>
     </AnimatePresence>
