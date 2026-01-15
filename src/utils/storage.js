@@ -1034,20 +1034,27 @@ export const claimDaily = async (walletAddress, canonicalId = null) => {
 
   // B. ZALOGOWANY - NOWY SYSTEM: używamy tylko localStorage dla streak
   // ale zapisujemy daily rewards do bazy dla rankingu
+  console.log('🔍 claimDaily called with:', { walletAddress, canonicalId });
+  
   const current = getStorageItem('snake_daily_status', { streak: 0, lastClaim: null });
   const lastDate = current.lastClaim ? new Date(current.lastClaim) : null;
 
+  console.log('🔍 Current daily status:', { streak: current.streak, lastClaim: current.lastClaim });
+
   // ✅ Guard: nie pozwalaj odebrać drugi raz tego samego dnia
   if (lastDate && isSameDay(now, lastDate)) {
+    console.log('⚠️ Already claimed today, returning early');
     return { success: false, error: 'ALREADY_CLAIMED_TODAY' };
   }
 
   // ✅ Guard: jeśli streak zerwany (missed), nie pozwalaj claimować - trzeba naprawić albo zresetować
   if (lastDate && !isYesterday(now, lastDate) && !isSameDay(now, lastDate) && current.streak > 0) {
+    console.log('⚠️ Streak missed, returning early');
     return { success: false, error: 'STREAK_MISSED' };
   }
 
   let newStreak = current.streak + 1;
+  console.log('✅ Claiming daily reward. newStreak:', newStreak);
   
   // Reset jeśli zerwany
   // (dla zalogowanych już zablokowane powyżej — nie resetujemy tutaj)
@@ -1068,11 +1075,16 @@ export const claimDaily = async (walletAddress, canonicalId = null) => {
   console.log('🍎 Daily reward claimed:', reward, 'New balance:', nextBalance);
 
   // 🔥 NOWE: Zapisz daily claim do bazy (dla rankingu)
+  console.log('💾 Starting DB save. canonicalId:', canonicalId, 'walletAddress:', walletAddress);
+  
   try {
     // Użyj canonicalId bezpośrednio (lub znajdź po wallet_address jako fallback)
     let userId = canonicalId;
     
+    console.log('🔍 userId from canonicalId:', userId);
+    
     if (!userId && walletAddress) {
+      console.log('🔍 No canonicalId, trying wallet_address...');
       // Fallback: znajdź przez wallet_address
       const { data: profile } = await supabase
         .from('player_profiles')
@@ -1080,24 +1092,27 @@ export const claimDaily = async (walletAddress, canonicalId = null) => {
         .eq('wallet_address', walletAddress.toLowerCase())
         .single();
       userId = profile?.user_id;
+      console.log('🔍 userId from wallet lookup:', userId);
     }
     
     if (userId) {
+      console.log('💾 Inserting to daily_claims:', { userId, reward, streak_day: newStreak });
       // Zapisz claim do bazy
-      const { error: claimError } = await supabase
+      const { data, error: claimError } = await supabase
         .from('daily_claims')
         .insert({
           user_id: userId,
           reward: reward,
           streak_day: newStreak,
           claimed_at: today
-        });
+        })
+        .select();
       
       if (claimError) {
         console.error('❌ Failed to save daily claim to DB:', claimError);
         // Nie przerywamy - localStorage już został zaktualizowany
       } else {
-        console.log('✅ Daily claim saved to DB:', { reward, streak_day: newStreak, userId });
+        console.log('✅ Daily claim saved to DB:', { reward, streak_day: newStreak, userId, data });
       }
     } else {
       console.warn('⚠️ No user_id found. canonicalId:', canonicalId, 'walletAddress:', walletAddress);
