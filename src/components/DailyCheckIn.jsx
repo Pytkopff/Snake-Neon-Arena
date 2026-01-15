@@ -30,7 +30,7 @@ const DailyCheckIn = ({ onClose, walletAddress, canonicalId, onRewardClaimed }) 
   const handleClaim = async () => {
     if (claiming) return; // Blokada przed spam-klikaniem
     setClaiming(true);
-    const result = await claimDaily(walletAddress);
+    const result = await claimDaily(walletAddress, canonicalId);
     if (result.success) {
         if (onRewardClaimed) onRewardClaimed(result.reward);
         // Po sukcesie zamykamy okno po krótkim opóźnieniu dla efektu

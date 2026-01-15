@@ -995,7 +995,7 @@ export const getDailyStatus = async (walletAddress) => {
   return status;
 };
 
-export const claimDaily = async (walletAddress) => {
+export const claimDaily = async (walletAddress, canonicalId = null) => {
   const today = new Date().toISOString();
   const now = new Date();
   
@@ -1069,19 +1069,25 @@ export const claimDaily = async (walletAddress) => {
 
   // 🔥 NOWE: Zapisz daily claim do bazy (dla rankingu)
   try {
-    // Znajdź canonical_user_id dla tego użytkownika
-    const { data: profile } = await supabase
-      .from('player_profiles')
-      .select('user_id')
-      .eq('wallet_address', walletAddress.toLowerCase())
-      .single();
+    // Użyj canonicalId bezpośrednio (lub znajdź po wallet_address jako fallback)
+    let userId = canonicalId;
     
-    if (profile?.user_id) {
+    if (!userId && walletAddress) {
+      // Fallback: znajdź przez wallet_address
+      const { data: profile } = await supabase
+        .from('player_profiles')
+        .select('user_id')
+        .eq('wallet_address', walletAddress.toLowerCase())
+        .single();
+      userId = profile?.user_id;
+    }
+    
+    if (userId) {
       // Zapisz claim do bazy
       const { error: claimError } = await supabase
         .from('daily_claims')
         .insert({
-          user_id: profile.user_id,
+          user_id: userId,
           reward: reward,
           streak_day: newStreak,
           claimed_at: today
@@ -1091,10 +1097,10 @@ export const claimDaily = async (walletAddress) => {
         console.error('❌ Failed to save daily claim to DB:', claimError);
         // Nie przerywamy - localStorage już został zaktualizowany
       } else {
-        console.log('✅ Daily claim saved to DB:', { reward, streak_day: newStreak });
+        console.log('✅ Daily claim saved to DB:', { reward, streak_day: newStreak, userId });
       }
     } else {
-      console.warn('⚠️ No profile found for wallet:', walletAddress);
+      console.warn('⚠️ No user_id found. canonicalId:', canonicalId, 'walletAddress:', walletAddress);
     }
   } catch (error) {
     console.error('❌ Error saving daily claim to DB:', error);
