@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getDailyStatus, claimDaily, repairStreakWithApples, resetStreakToZero, DAILY_REWARDS, getPlayerStats } from '../utils/storage';
 
-const DailyCheckIn = ({ onClose, walletAddress, canonicalId, onRewardClaimed }) => {
+const DailyCheckIn = ({ onClose, walletAddress, canonicalId, onRewardClaimed, onStatsUpdated }) => {
   const [status, setStatus] = useState(null);
   const [loading, setLoading] = useState(true);
   const [claiming, setClaiming] = useState(false);
@@ -33,6 +33,7 @@ const DailyCheckIn = ({ onClose, walletAddress, canonicalId, onRewardClaimed }) 
     const result = await claimDaily(walletAddress, canonicalId);
     if (result.success) {
         if (onRewardClaimed) onRewardClaimed(result.reward);
+        if (onStatsUpdated) await onStatsUpdated();
         // Po sukcesie zamykamy okno po krótkim opóźnieniu dla efektu
         setTimeout(() => onClose(), 2000);
     } else {
@@ -69,6 +70,7 @@ const DailyCheckIn = ({ onClose, walletAddress, canonicalId, onRewardClaimed }) 
     
     if (success) {
         console.log('✅ Streak repaired!');
+        if (onStatsUpdated) await onStatsUpdated();
         await loadData(); // Odświeżamy - teraz powinno być "canClaim: true"
     } else {
         console.error('❌ Repair failed unexpectedly');
@@ -81,6 +83,7 @@ const DailyCheckIn = ({ onClose, walletAddress, canonicalId, onRewardClaimed }) 
       if (claiming) return; // Blokada przed spam-klikaniem
       setClaiming(true);
       await resetStreakToZero(walletAddress);
+      if (onStatsUpdated) await onStatsUpdated();
       await loadData();
       setClaiming(false);
   };

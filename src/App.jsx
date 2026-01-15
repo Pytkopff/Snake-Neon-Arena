@@ -680,6 +680,10 @@ function App() {
               setUnlockNotification([`Daily Reward: +${amount} 🍎`]);
               setPlayerStats(prev => ({ ...prev, totalApples: (prev.totalApples || 0) + amount }));
             }}
+            onStatsUpdated={async () => {
+              const stats = await getPlayerStats(address, currentCanonicalId);
+              setPlayerStats(stats);
+            }}
           />
         )}
         
