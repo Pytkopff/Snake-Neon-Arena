@@ -229,36 +229,6 @@ const DailyCheckIn = ({ onClose, walletAddress, canonicalId, onRewardClaimed, on
                 ✕
             </button>
 
-            {/* 🔧 DEBUG: Test Buttons (tylko dla testów) */}
-            <div className="absolute bottom-4 left-4 flex gap-2">
-                <button
-                    onClick={() => {
-                        localStorage.removeItem('snake_daily_status');
-                        console.log('🔧 DEBUG: Daily status zresetowany!');
-                        loadData();
-                    }}
-                    className="text-[8px] text-gray-600 hover:text-yellow-400 px-2 py-1 bg-black/50 rounded"
-                >
-                    🔧 RESET
-                </button>
-                <button
-                    onClick={() => {
-                        const twoDaysAgo = new Date();
-                        twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
-                        const current = JSON.parse(localStorage.getItem('snake_daily_status') || '{"streak":0}');
-                        const currentStreak = Math.max(1, Number(current?.streak) || 0);
-                        localStorage.setItem('snake_daily_status', JSON.stringify({
-                            streak: currentStreak,
-                            lastClaim: twoDaysAgo.toISOString()
-                        }));
-                        console.log('🔧 DEBUG: Ustawiono missed day (streak broken)', { streak: currentStreak });
-                        loadData();
-                    }}
-                    className="text-[8px] text-gray-600 hover:text-red-400 px-2 py-1 bg-black/50 rounded"
-                >
-                    🔧 MISS
-                </button>
-            </div>
         </motion.div>
       </motion.div>
     </AnimatePresence>
