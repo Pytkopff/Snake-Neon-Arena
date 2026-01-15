@@ -69,12 +69,6 @@ export const useSnakeGame = (isPaused) => {
 
     if (mode === 'classic') {
       startSpeed = 100;
-      startEffects.push({ 
-        type: 'SHIELD', 
-        endTime: Date.now() + 3000, 
-        duration: 3000, 
-        config: POWERUP_TYPES.SHIELD 
-      });
     } else if (mode === 'walls') { 
       startSpeed = 100; 
       initialTime = 30000;
