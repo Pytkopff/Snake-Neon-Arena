@@ -245,11 +245,13 @@ const DailyCheckIn = ({ onClose, walletAddress, canonicalId, onRewardClaimed, on
                     onClick={() => {
                         const twoDaysAgo = new Date();
                         twoDaysAgo.setDate(twoDaysAgo.getDate() - 2);
+                        const current = JSON.parse(localStorage.getItem('snake_daily_status') || '{"streak":0}');
+                        const currentStreak = Math.max(1, Number(current?.streak) || 0);
                         localStorage.setItem('snake_daily_status', JSON.stringify({
-                            streak: 3,
+                            streak: currentStreak,
                             lastClaim: twoDaysAgo.toISOString()
                         }));
-                        console.log('🔧 DEBUG: Ustawiono missed day (streak broken)');
+                        console.log('🔧 DEBUG: Ustawiono missed day (streak broken)', { streak: currentStreak });
                         loadData();
                     }}
                     className="text-[8px] text-gray-600 hover:text-red-400 px-2 py-1 bg-black/50 rounded"
