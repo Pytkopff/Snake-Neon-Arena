@@ -999,8 +999,8 @@ export const claimDaily = async (walletAddress, canonicalId = null) => {
   const today = new Date().toISOString();
   const now = new Date();
   
-  // A. GOŚĆ
-  if (!walletAddress) {
+  // A. GOŚĆ (brak wallet i brak canonicalId)
+  if (!walletAddress && !canonicalId) {
     const current = getStorageItem('snake_daily_status', { streak: 0, lastClaim: null });
     const lastDate = current.lastClaim ? new Date(current.lastClaim) : null;
 
@@ -1126,7 +1126,7 @@ export const claimDaily = async (walletAddress, canonicalId = null) => {
 };
 
 export const repairStreakWithApples = async (walletAddress, canonicalId = null) => {
-    if (!walletAddress) return false; // Goście nie mogą naprawiać
+    if (!walletAddress && !canonicalId) return false; // Goście nie mogą naprawiać
 
     const cost = 500;
     
@@ -1181,11 +1181,17 @@ export const repairStreakWithApples = async (walletAddress, canonicalId = null) 
     // 🔥 NOWE: Zapisz wydatek do bazy (dla rankingu)
     // Gracz MUSI czuć karę za przegapienie streaka!
     try {
-        const { data: profile } = await supabase
+        let profileQuery = supabase
             .from('player_profiles')
-            .select('user_id')
-            .or(`canonical_user_id.eq.${canonicalId},wallet_address.eq.${walletAddress.toLowerCase()}`)
-            .single();
+            .select('user_id');
+
+        if (canonicalId) {
+            profileQuery = profileQuery.eq('canonical_user_id', canonicalId);
+        } else if (walletAddress) {
+            profileQuery = profileQuery.eq('wallet_address', walletAddress.toLowerCase());
+        }
+
+        const { data: profile } = await profileQuery.single();
         
         if (profile?.user_id) {
             const { error: transactionError } = await supabase
