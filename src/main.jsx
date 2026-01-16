@@ -22,7 +22,8 @@ import { ThirdwebProvider } from "@thirdweb-dev/react";
 import { Base } from "@thirdweb-dev/chains"; 
 
 const APP_NAME = 'Snake Neo Arena';
-const APP_LOGO_URL = `${window.location.origin}/logo.png`;
+const APP_ORIGIN = globalThis?.location?.origin || 'https://snake-neon-arena.vercel.app';
+const APP_LOGO_URL = `${APP_ORIGIN}/logo.png`;
 const WALLET_CONNECT_PROJECT_ID = import.meta.env.VITE_WALLET_CONNECT_PROJECT_ID || 'YOUR_PROJECT_ID';
 
 const config = createConfig({
@@ -31,6 +32,7 @@ const config = createConfig({
     [base.id]: http(),
     [optimism.id]: http(),
   },
+  ssr: false,
   connectors: [
     // Base App / Farcaster Mini App auto-connectors
     farcasterMiniApp(),
