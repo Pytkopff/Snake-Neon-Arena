@@ -9,20 +9,41 @@ import './index.css';
 
 // --- IMPORTY WEB3 ---
 import '@rainbow-me/rainbowkit/styles.css';
-import { getDefaultConfig, RainbowKitProvider, darkTheme } from '@rainbow-me/rainbowkit';
-import { WagmiProvider } from 'wagmi';
-import { base } from 'wagmi/chains'; 
+import { RainbowKitProvider, darkTheme } from '@rainbow-me/rainbowkit';
+import { WagmiProvider, createConfig, http } from 'wagmi';
+import { base, optimism } from 'wagmi/chains';
+import { baseAccount } from 'wagmi/connectors';
+import { farcasterMiniApp } from '@farcaster/miniapp-wagmi-connector';
+import { coinbaseWallet, injected, metaMask, walletConnect } from 'wagmi/connectors';
 import { QueryClientProvider, QueryClient } from "@tanstack/react-query";
 
 // --- IMPORTY THIRDWEB ---
 import { ThirdwebProvider } from "@thirdweb-dev/react";
 import { Base } from "@thirdweb-dev/chains"; 
 
-const config = getDefaultConfig({
-  appName: 'Snake Neo Arena',
-  projectId: import.meta.env.VITE_WALLET_CONNECT_PROJECT_ID || 'YOUR_PROJECT_ID', 
-  chains: [base],
-  ssr: false,
+const APP_NAME = 'Snake Neo Arena';
+const APP_LOGO_URL = `${window.location.origin}/logo.png`;
+const WALLET_CONNECT_PROJECT_ID = import.meta.env.VITE_WALLET_CONNECT_PROJECT_ID || 'YOUR_PROJECT_ID';
+
+const config = createConfig({
+  chains: [base, optimism],
+  transports: {
+    [base.id]: http(),
+    [optimism.id]: http(),
+  },
+  connectors: [
+    // Base App / Farcaster Mini App auto-connectors
+    farcasterMiniApp(),
+    baseAccount({
+      appName: APP_NAME,
+      appLogoUrl: APP_LOGO_URL,
+    }),
+    // Standard web wallets
+    injected({ shimDisconnect: true }),
+    metaMask(),
+    coinbaseWallet({ appName: APP_NAME, appLogoUrl: APP_LOGO_URL }),
+    walletConnect({ projectId: WALLET_CONNECT_PROJECT_ID }),
+  ],
 });
 
 const queryClient = new QueryClient();

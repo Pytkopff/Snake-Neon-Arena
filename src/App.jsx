@@ -32,6 +32,7 @@ import Particles from './components/Particles';
 function App() {
   const [farcasterUser, setFarcasterUser] = useState(null);
   const [isSDKLoaded, setIsSDKLoaded] = useState(false);
+  const [quickAuthToken, setQuickAuthToken] = useState(null);
   
   const { address, isConnected } = useAccount();
   const particlesRef = useRef();
@@ -220,10 +221,20 @@ function App() {
   useEffect(() => {
   const load = async () => {
     try {
-      await sdk.actions.ready();
+      await sdk.actions.ready({ disableNativeGestures: true });
       const context = await sdk.context;
       const user = context?.user || { username: 'PlayerOne', pfpUrl: 'https://i.imgur.com/Kbd74kI.png' };
       setFarcasterUser(user);
+
+      // Quick Auth (token for future backend verification)
+      if (sdk?.quickAuth?.getToken) {
+        try {
+          const token = await sdk.quickAuth.getToken();
+          setQuickAuthToken(token);
+        } catch (err) {
+          console.warn('Quick Auth token fetch failed:', err);
+        }
+      }
 
       // ❌ REMOVED: Stara synchronizacja do player_profiles_v2 (nieużywana)
       // Używamy tylko syncPlayerProfile() w initProfile useEffect

@@ -3,6 +3,8 @@ import { supabase } from './supabaseClient';
 export const upsertPlayerProfile = async (profileData) => {
   if (!profileData.address && !profileData.fid) return null;
 
+  const onConflict = profileData.fid ? 'farcaster_fid' : 'wallet_address';
+
   const { data, error } = await supabase
     .from('player_profiles_v2')
     .upsert({
@@ -12,7 +14,7 @@ export const upsertPlayerProfile = async (profileData) => {
       avatar_url: profileData.pfpUrl,
       display_name: profileData.displayName || profileData.username,
       last_active: new Date().toISOString(),
-    }, { onConflict: 'wallet_address' })
+    }, { onConflict })
     .select();
 
   if (error) {
