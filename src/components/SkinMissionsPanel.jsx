@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAccount, useWalletClient, useSwitchChain, usePublicClient } from 'wagmi';
 import { ethers } from "ethers"; 
