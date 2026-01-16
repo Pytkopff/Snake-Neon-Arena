@@ -13,6 +13,7 @@ const iface = new ethers.utils.Interface([
   "function claim(address receiver, uint256 tokenId, uint256 quantity, address currency, uint256 pricePerToken, tuple(bytes32[] proof, uint256 quantityLimitPerWallet, uint256 pricePerToken, address currency) allowlistProof, bytes data)"
 ]);
 const NATIVE_TOKEN = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
+const PAID_MINT_PRICE = parseEther("0.00034");
 const MAX_UINT256 = "115792089237316195423570985008687907853269984665640564039457584007913129639935";
 
 const SkinMissionsPanel = ({ 
@@ -24,6 +25,8 @@ const SkinMissionsPanel = ({
 }) => {
   const [activeTab, setActiveTab] = useState('missions');
   const [isMinting, setIsMinting] = useState(false);
+  const [walletBalance, setWalletBalance] = useState(0n);
+  const [balanceLoaded, setBalanceLoaded] = useState(false);
   
   // 🔥 NOWY STAN DLA SUKCESU 🔥
   const [mintSuccess, setMintSuccess] = useState(null); // null lub hash transakcji
@@ -32,6 +35,34 @@ const SkinMissionsPanel = ({
   const { data: walletClient } = useWalletClient(); 
   const { switchChainAsync } = useSwitchChain();
   const publicClient = usePublicClient();
+
+  // Pre-check balance for paid mint (professional UX)
+  useEffect(() => {
+    let isMounted = true;
+    const loadBalance = async () => {
+      if (!publicClient || !address) {
+        if (isMounted) {
+          setWalletBalance(0n);
+          setBalanceLoaded(false);
+        }
+        return;
+      }
+      try {
+        const balance = await publicClient.getBalance({ address });
+        if (isMounted) {
+          setWalletBalance(balance);
+          setBalanceLoaded(true);
+        }
+      } catch (err) {
+        if (isMounted) {
+          setWalletBalance(0n);
+          setBalanceLoaded(false);
+        }
+      }
+    };
+    loadBalance();
+    return () => { isMounted = false; };
+  }, [publicClient, address, chainId]);
 
   const handleMint = async (tokenId) => {
     if (!address || !walletClient) return;
@@ -57,7 +88,7 @@ const SkinMissionsPanel = ({
       let valueToSend = 0n;
 
       if (tokenId === 2) {
-          pricePerToken = parseEther("0.00034"); 
+          pricePerToken = PAID_MINT_PRICE; 
           valueToSend = pricePerToken;
       }
 
@@ -244,14 +275,29 @@ const SkinMissionsPanel = ({
                           )}
                           {isNftMission && (
                               isCompleted ? (
-                                <button
-                                    onClick={() => handleMint(tokenId)}
-                                    disabled={isMinting}
-                                    className={`text-black text-[10px] font-bold px-3 py-1.5 rounded shadow-[0_0_10px_rgba(0,240,255,0.4)] transition-all
-                                      ${(isMinting) ? 'bg-gray-400 cursor-wait' : 'bg-gradient-to-r from-neon-blue to-cyan-300 hover:scale-105'}`}
-                                >
-                                    {isMinting ? "MINTING..." : (tokenId === 2 ? "MINT (0.00034 ETH)" : "CLAIM FREE")}
-                                </button>
+                                <>
+                                  {(() => {
+                                    const isPaidMint = tokenId === 2;
+                                    const hasEnoughBalance = !isPaidMint || (balanceLoaded && walletBalance >= PAID_MINT_PRICE);
+                                    return (
+                                      <>
+                                        <button
+                                            onClick={() => handleMint(tokenId)}
+                                            disabled={isMinting || (isPaidMint && !hasEnoughBalance)}
+                                            className={`text-black text-[10px] font-bold px-3 py-1.5 rounded shadow-[0_0_10px_rgba(0,240,255,0.4)] transition-all
+                                              ${(isMinting || (isPaidMint && !hasEnoughBalance)) ? 'bg-gray-400 cursor-not-allowed' : 'bg-gradient-to-r from-neon-blue to-cyan-300 hover:scale-105'}`}
+                                        >
+                                            {isMinting ? "MINTING..." : (isPaidMint ? "MINT (0.00034 ETH)" : "CLAIM FREE")}
+                                        </button>
+                                        {isPaidMint && !hasEnoughBalance && (
+                                          <div className="mt-1 text-[9px] text-red-400 text-right">
+                                            Not enough ETH for mint
+                                          </div>
+                                        )}
+                                      </>
+                                    );
+                                  })()}
+                                </>
                               ) : (
                                 <div className="flex items-center gap-1 bg-black/40 px-2 py-1 rounded border border-white/10 opacity-50">
                                     <span className="text-[10px]">🔒 Locked</span>
