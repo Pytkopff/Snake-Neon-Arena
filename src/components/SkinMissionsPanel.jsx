@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useAccount, useWalletClient, useSwitchChain } from 'wagmi';
+import { useAccount, useWalletClient, useSwitchChain, usePublicClient } from 'wagmi';
 import { ethers } from "ethers"; 
 import { getAddress, parseEther } from 'viem'; 
 import { SKINS, MISSIONS } from '../utils/constants';
@@ -31,6 +31,7 @@ const SkinMissionsPanel = ({
   const { address, chainId } = useAccount(); 
   const { data: walletClient } = useWalletClient(); 
   const { switchChainAsync } = useSwitchChain();
+  const publicClient = usePublicClient();
 
   const handleMint = async (tokenId) => {
     if (!address || !walletClient) return;
@@ -80,10 +81,18 @@ const SkinMissionsPanel = ({
 
       console.log("✅ Hash:", hash);
 
+      // ✅ Poczekaj na potwierdzenie w chain (żeby nie pokazać fałszywego sukcesu)
+      if (!publicClient) {
+        throw new Error("Public client not available");
+      }
+
+      const receipt = await publicClient.waitForTransactionReceipt({ hash });
+      if (receipt.status !== 'success') {
+        throw new Error("Transaction failed");
+      }
+
       // 🔥 ZAMIAST ALERTU -> USTAW STAN SUKCESU 🔥
       setMintSuccess(hash);
-      
-      // Nie zamykamy panelu od razu, żeby gracz nacieszył oczy sukcesem
 
     } catch (err) {
       console.error("❌ Mint Error:", err);
