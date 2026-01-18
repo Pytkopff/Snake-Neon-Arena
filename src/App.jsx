@@ -665,8 +665,18 @@ function App() {
               const modeName = gameMode === 'walls' ? '⚡ Time Blitz' : gameMode === 'chill' ? '🧘 Zen Flow' : '🏆 Classic';      
               const text = `🐍 Just scored ${score} points in Snake Neon Arena!\n\nMode: ${modeName}\nSkin: ${activeSkinObj.name}\n\nCan you beat my high score? 👇`;          
               const gameUrl = "https://snake-neon-arena.vercel.app"; 
-              const shareUrl = `https://warpcast.com/~/compose?text=${encodeURIComponent(text)}&embeds[]=${encodeURIComponent(gameUrl)}`;            
-              sdk.actions.openUrl(shareUrl); 
+              const shareUrl = `https://warpcast.com/~/compose?text=${encodeURIComponent(text)}&embeds[]=${encodeURIComponent(gameUrl)}`;
+              (async () => {
+                try {
+                  if (sdk?.actions?.composeCast) {
+                    await sdk.actions.composeCast({ text, embeds: [gameUrl] });
+                    return;
+                  }
+                } catch (err) {
+                  console.warn('composeCast failed, falling back to warpcast:', err);
+                }
+                sdk.actions.openUrl(shareUrl);
+              })();
             }}            
             applesCollected={applesCollected}
           />
@@ -683,7 +693,7 @@ function App() {
         )}
         {showDailyCheckIn && (
           <DailyCheckIn
-            walletAddress={address}
+            walletAddress={address} 
             canonicalId={currentCanonicalId}
             onClose={() => setShowDailyCheckIn(false)}
             onRewardClaimed={(amount) => {
