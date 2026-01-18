@@ -14,5 +14,11 @@
     "splashImageUrl": "https://snake-neon-arena.vercel.app/cover-final.jpg",
     "splashBackgroundColor": "#0A0E27",
     "webhookUrl": "https://snake-neon-arena.vercel.app/api/webhook"
-  }
+  },
+  "primaryCategory": "games",
+  "tags": [
+    "snake",
+    "arcade",
+    "retro"
+  ]
 }
