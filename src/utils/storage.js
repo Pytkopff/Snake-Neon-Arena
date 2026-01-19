@@ -241,7 +241,7 @@ export const getPlayerStats = async (walletAddress, canonicalId = null) => {
         bestScoreChill: Math.max(localBestChill, dbScores.bestScoreChill),
         totalApplesGross: dbScores.totalApples  // ✅ Użyj TYLKO bazy (nie max!)
       };
-
+      
       const resolvedApplesSpent = 0;  // ✅ Reset spent (wydatki są w apple_transactions w bazie)
       const resolvedAppleBalance = Math.max(0, Number(dbScores.totalApples) || 0);  // ✅ Bezpośrednio z bazy
       
@@ -319,7 +319,7 @@ export const getPlayerStats = async (walletAddress, canonicalId = null) => {
           bestScoreChill: Math.max(localBestChill, dbScores.bestScoreChill),
           totalApplesGross: dbScores.totalApples  // ✅ Użyj TYLKO bazy (nie max!)
         };
-
+        
         const resolvedApplesSpent = 0;  // ✅ Reset spent (wydatki są w bazie)
         const resolvedAppleBalance = Math.max(0, Number(dbScores.totalApples) || 0);  // ✅ Bezpośrednio z bazy
         
@@ -448,14 +448,15 @@ export const updatePlayerStats = async (applesInGame, score, walletAddress, mode
 export const unlockSkinOnServer = async (skinId, walletAddress) => {
   if (!walletAddress) return;
   try {
+    const walletAddressLower = walletAddress.toLowerCase();
     // Najpierw znajdź lub utwórz profil
-    let { data: profile } = await supabase.from('profiles').select('id').eq('wallet_address', walletAddress).single();
+    let { data: profile } = await supabase.from('profiles').select('id').eq('wallet_address', walletAddressLower).single();
     
     // Jeśli nie ma profilu, utwórz go
     if (!profile) {
       const { data: newProfile, error: createError } = await supabase
         .from('profiles')
-        .insert([{ wallet_address: walletAddress }])
+        .insert([{ wallet_address: walletAddressLower }])
         .select()
         .single();
       
@@ -503,12 +504,17 @@ export const getUnlockedSkins = async (walletAddress) => {
 
   // 3. Jeśli JEST zalogowany -> Baza Danych jest szeryfem 🤠
   try {
-    const { data: profile } = await supabase.from('profiles').select('id').eq('wallet_address', walletAddress).single();
+    const walletAddressLower = walletAddress.toLowerCase();
+    const { data: profile } = await supabase.from('profiles').select('id').eq('wallet_address', walletAddressLower).single();
 
     if (profile) {
       const { data: unlocked } = await supabase.from('unlocked_skins').select('skin_id').eq('user_id', profile.id);
       
       if (unlocked) {
+        // Jeśli baza zwraca 0 skinów, a lokalnie mamy więcej -> nie nadpisuj (fallback)
+        if (unlocked.length === 0 && localSkins.length > 1) {
+          return localSkins;
+        }
         // Robimy listę skinów z bazy
         const dbSkins = unlocked.map(u => u.skin_id);
         
