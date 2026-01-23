@@ -128,6 +128,16 @@ src/
 - **Preview Build**: `npm run preview` to test production build locally
 - **Mobile Testing**: The dev server runs on `0.0.0.0:5173` for network access
 
+## 🗺️ Project Status
+
+The core game mechanics are fully implemented and optimized for Base.
+
+- [x] **Core Gameplay:** Classic, Time Blitz, and Zen Flow modes
+- [x] **Mobile Support:** Full touch control optimization
+- [x] **Integration:** Farcaster Frame & Wallet Connect
+- [x] **Social:** Global Leaderboards & Daily Rewards
+- [ ] **Upcoming:** Seasonal Skins & Community Events 🎨
+
 ## License
 
 MIT
