@@ -567,8 +567,15 @@ function App() {
                         return (
                           <div className="flex gap-2">
                             <button onClick={openChainModal} className="px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-white font-bold flex items-center gap-2 hover:bg-white/10 transition-all">{chain.name}</button>
-                            <button onClick={openAccountModal} className="px-4 py-2 rounded-xl bg-gradient-to-r from-neon-blue/20 to-purple-500/20 border border-neon-blue/50 text-white font-bold shadow-[0_0_10px_rgba(0,240,255,0.2)] hover:scale-105 transition-all">
-                              👤 {farcasterUser?.username || walletProfile?.displayName || 'Wallet Player'}
+                            <button onClick={openAccountModal} className="px-4 py-2 rounded-xl bg-gradient-to-r from-neon-blue/20 to-purple-500/20 border border-neon-blue/50 text-white font-bold shadow-[0_0_10px_rgba(0,240,255,0.2)] hover:scale-105 transition-all flex items-center gap-2">
+                              {(() => {
+                                const avatarUrl = farcasterUser?.pfpUrl || walletProfile?.avatarUrl;
+                                if (avatarUrl) {
+                                  return <img src={avatarUrl} alt="avatar" className="w-5 h-5 rounded-full border border-white/20 object-cover" />;
+                                }
+                                return <span aria-hidden>👤</span>;
+                              })()}
+                              <span>{farcasterUser?.username || walletProfile?.displayName || 'Wallet Player'}</span>
                             </button>
                           </div>
                         );
