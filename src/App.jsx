@@ -568,7 +568,7 @@ function App() {
                           <div className="flex gap-2">
                             <button onClick={openChainModal} className="px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-white font-bold flex items-center gap-2 hover:bg-white/10 transition-all">{chain.name}</button>
                             <button onClick={openAccountModal} className="px-4 py-2 rounded-xl bg-gradient-to-r from-neon-blue/20 to-purple-500/20 border border-neon-blue/50 text-white font-bold shadow-[0_0_10px_rgba(0,240,255,0.2)] hover:scale-105 transition-all">
-                              👤 {walletProfile?.displayName || 'Wallet Player'}
+                              👤 {farcasterUser?.username || walletProfile?.displayName || 'Wallet Player'}
                             </button>
                           </div>
                         );
