@@ -2,6 +2,7 @@
 import { STORAGE_KEYS, SKINS, MISSIONS } from './constants';
 // Upewnij się, że plik supabaseClient.js istnieje w tym samym folderze!
 import { supabase } from './supabaseClient';
+import { generateWalletPseudonym, getDefaultWalletAvatar } from './walletIdentity';
 
 // ==========================================
 // 🔥 CROSS-DEVICE SYNC: Fetch from SQL Views
@@ -657,7 +658,7 @@ export const clearLeaderboard = (keyName) => {
  * @returns {Promise<string>} - canonical_user_id gracza
  */
 export const syncPlayerProfile = async (identity) => {
-  const { farcasterFid, walletAddress, guestId, previousGuestId, username, avatarUrl } = identity;
+  const { farcasterFid, walletAddress, guestId, previousGuestId, username, avatarUrl, displayName: identityDisplayName } = identity;
   
   // 1. Określ user_id i canonical_user_id (priorytet)
   let userId, canonicalUserId, displayName, defaultAvatar;
@@ -665,13 +666,13 @@ export const syncPlayerProfile = async (identity) => {
   if (farcasterFid) {
     userId = `fc:${farcasterFid}`;
     canonicalUserId = `fc:${farcasterFid}`;
-    displayName = username || `Player_${farcasterFid}`;
+    displayName = username || identityDisplayName || `Player_${farcasterFid}`;
     defaultAvatar = avatarUrl || `https://api.dicebear.com/7.x/bottts-neutral/svg?seed=fc${farcasterFid}&backgroundColor=0a0e27`;
   } else if (walletAddress) {
     userId = walletAddress.toLowerCase();
     canonicalUserId = walletAddress.toLowerCase();
-    displayName = `${walletAddress.substring(0, 6)}...${walletAddress.substring(walletAddress.length - 4)}`;
-    defaultAvatar = `https://api.dicebear.com/7.x/bottts-neutral/svg?seed=${walletAddress}&backgroundColor=0a0e27`;
+    displayName = identityDisplayName || generateWalletPseudonym(walletAddress);
+    defaultAvatar = avatarUrl || getDefaultWalletAvatar(walletAddress);
   } else if (guestId) {
     userId = `guest:${guestId}`;
     canonicalUserId = `guest:${guestId}`;

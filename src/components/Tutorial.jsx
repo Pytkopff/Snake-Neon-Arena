@@ -90,7 +90,7 @@ const Tutorial = ({ onClose }) => {
               </li>
               <li className="flex items-start gap-2">
                 <span className="text-neon-green">●</span>
-                <span>Share your high score on Farcaster to compete!</span>
+                <span>Share your high score with friends and compete!</span>
               </li>
             </ul>
           </div>

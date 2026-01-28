@@ -36,6 +36,14 @@ const SkinMissionsPanel = ({
   const { switchChainAsync } = useSwitchChain();
   const publicClient = usePublicClient();
 
+  const openExternalUrl = (url) => {
+    if (sdk?.actions?.openUrl) {
+      sdk.actions.openUrl(url);
+      return;
+    }
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
   // Pre-check balance for paid mint (professional UX)
   useEffect(() => {
     let isMounted = true;
@@ -178,7 +186,7 @@ const SkinMissionsPanel = ({
              
              <div className="flex flex-col gap-3 w-full">
                <button 
-                 onClick={() => sdk.actions.openUrl(`https://basescan.org/tx/${mintSuccess}`)}
+                 onClick={() => openExternalUrl(`https://basescan.org/tx/${mintSuccess}`)}
                  className="w-full py-3 rounded-xl border border-white/10 bg-white/5 text-neon-blue font-bold text-sm hover:bg-white/10 transition-all flex items-center justify-center gap-2"
                >
                  🔍 View on BaseScan

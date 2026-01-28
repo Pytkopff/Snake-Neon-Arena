@@ -9,9 +9,9 @@
     "name": "Snake Neon Arena",
     "iconUrl": "https://snake-neon-arena.vercel.app/logo.png",
     "homeUrl": "https://snake-neon-arena.vercel.app",
-    "imageUrl": "https://snake-neon-arena.vercel.app/cover-final.jpg",
+    "imageUrl": "https://snake-neon-arena.vercel.app/promo-base.png",
     "buttonTitle": "Play Snake 🐍",
-    "splashImageUrl": "https://snake-neon-arena.vercel.app/cover-final.jpg",
+    "splashImageUrl": "https://snake-neon-arena.vercel.app/promo-base.png",
     "splashBackgroundColor": "#0A0E27",
     "webhookUrl": "https://snake-neon-arena.vercel.app/api/webhook"
   },
@@ -20,7 +20,7 @@
     "name": "Snake Neon Arena",
     "homeUrl": "https://snake-neon-arena.vercel.app",
     "iconUrl": "https://snake-neon-arena.vercel.app/logo.png",
-    "splashImageUrl": "https://snake-neon-arena.vercel.app/cover-final.jpg",
+    "splashImageUrl": "https://snake-neon-arena.vercel.app/promo-base.png",
     "splashBackgroundColor": "#0A0E27",
     "webhookUrl": "https://snake-neon-arena.vercel.app/api/webhook",
     "subtitle": "Play Snake on Base",
@@ -35,13 +35,13 @@
     "screenshotUrls": [
       "https://snake-neon-arena.vercel.app/gameplay.jpg",
       "https://snake-neon-arena.vercel.app/leaderboard.jpg",
-      "https://snake-neon-arena.vercel.app/mission.jpg"
+      "https://snake-neon-arena.vercel.app/missions.jpg"
     ],
-    "heroImageUrl": "https://snake-neon-arena.vercel.app/cover-final.jpg",
+    "heroImageUrl": "https://snake-neon-arena.vercel.app/promo-base.png",
     "tagline": "Play instantly",
     "ogTitle": "Snake Neon Arena",
     "ogDescription": "Play Snake on Base",
-    "ogImageUrl": "https://snake-neon-arena.vercel.app/cover-final.jpg",
+    "ogImageUrl": "https://snake-neon-arena.vercel.app/promo-base.png",
     "noindex": false
   }
 }

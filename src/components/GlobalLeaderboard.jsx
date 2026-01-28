@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from '../utils/supabaseClient';
+import { generateWalletPseudonym, getDefaultWalletAvatar } from '../utils/walletIdentity';
 
 const GlobalLeaderboard = ({ onClose, defaultTab = 'classic', currentCanonicalId, farcasterUser }) => {
   const [tab, setTab] = useState(defaultTab);
@@ -48,14 +49,11 @@ const GlobalLeaderboard = ({ onClose, defaultTab = 'classic', currentCanonicalId
 
   const getAvatar = (player) => {
     if (player.avatar_url) return player.avatar_url;
-    return `https://api.dicebear.com/7.x/bottts-neutral/svg?seed=${player.canonical_user_id}&backgroundColor=0a0e27`;
-  };
-
-  const formatWallet = (addr) => {
-    if (!addr) return 'Wallet';
-    const a = String(addr);
-    if (a.length <= 10) return a;
-    return `${a.slice(0, 6)}...${a.slice(-4)}`;
+    const cid = String(player?.canonical_user_id || '');
+    if (cid.startsWith('0x') || cid.startsWith('0X')) {
+      return getDefaultWalletAvatar(cid.toLowerCase());
+    }
+    return `https://api.dicebear.com/7.x/bottts-neutral/svg?seed=${cid}&backgroundColor=0a0e27`;
   };
 
   const formatGuest = (id) => {
@@ -67,24 +65,23 @@ const GlobalLeaderboard = ({ onClose, defaultTab = 'classic', currentCanonicalId
 
   const getDisplayLabel = (player) => {
     const cid = String(player?.canonical_user_id || '');
+    const genericNames = new Set(['Guest Player', 'PlayerOne', 'Wallet User', 'Player']);
     
     // 1) Jeśli mamy display_name z Farcastera (nie generyczne), użyj go ZAWSZE
     if (player.display_name && 
-        player.display_name !== 'Guest Player' && 
-        player.display_name !== 'PlayerOne' &&
-        player.display_name !== 'Wallet User' &&
+        !genericNames.has(player.display_name) &&
         !player.display_name.startsWith('0x')) {
       return player.display_name;
     }
     
     // 2) Farcaster user bez display_name: fallback
     if (cid.startsWith('fc:')) {
-      return 'Farcaster';
+      return player.farcaster_username || 'Farcaster';
     }
     
-    // 3) Wallet user: pokaż skrócony adres
+    // 3) Wallet user: pokaż pseudonim zamiast adresu
     if (cid.startsWith('0x') || cid.startsWith('0X')) {
-      return formatWallet(cid.toLowerCase());
+      return generateWalletPseudonym(cid.toLowerCase());
     }
     
     // 4) Guest: show Guest # + last 4 chars

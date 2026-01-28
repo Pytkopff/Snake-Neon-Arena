@@ -15,6 +15,7 @@ import {
   getSelectedSkin, setSelectedSkin, getPlayerStats, syncProfile,
   syncPlayerProfile, saveGameSession
 } from './utils/storage';
+import { resolveWalletProfile } from './utils/nameResolver';
 
 // 🔥 IMPORTUJ MANAGERA
 import SoundManager from './utils/SoundManager'; 
@@ -51,6 +52,10 @@ function App() {
   const [unlockedSkins, setUnlockedSkins] = useState(['default']);
   const [currentSkinId, setCurrentSkinId] = useState(getSelectedSkin());
   const [currentCanonicalId, setCurrentCanonicalId] = useState(null);
+  const [walletProfile, setWalletProfile] = useState(null);
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [sharePayload, setSharePayload] = useState(null);
+  const [shareCopied, setShareCopied] = useState(false);
   const prevWalletConnectedRef = useRef(false);
   const prevWalletAddressRef = useRef(null);
 
@@ -87,6 +92,22 @@ function App() {
 
 
   // --- Profile & Storage Sync ---
+  useEffect(() => {
+    let isActive = true;
+
+    const loadWalletProfile = async () => {
+      if (!address) {
+        if (isActive) setWalletProfile(null);
+        return;
+      }
+      const profile = await resolveWalletProfile(address);
+      if (isActive) setWalletProfile(profile);
+    };
+
+    loadWalletProfile();
+    return () => { isActive = false; };
+  }, [address]);
+
  useEffect(() => {
   const initProfile = async () => {
     // 🔥 CRITICAL: In Farcaster mini-app (web), SDK context can arrive a bit later.
@@ -139,7 +160,8 @@ function App() {
       guestId: guestId,
       previousGuestId: previousGuestId,
       username: farcasterUser?.username,
-      avatarUrl: farcasterUser?.pfpUrl,
+      avatarUrl: farcasterUser?.fid ? farcasterUser?.pfpUrl : walletProfile?.avatarUrl,
+      displayName: farcasterUser?.fid ? farcasterUser?.username : walletProfile?.displayName,
     });
     
     console.log('🔑 Current Canonical ID set to:', canonicalId);
@@ -159,7 +181,7 @@ function App() {
     setBestScore(getBestScore(gameMode));
   };
   initProfile();
-}, [isConnected, address, farcasterUser, isSDKLoaded]); // ❌ USUNIĘTE gameMode - nie resetuj statystyk przy zmianie trybu
+}, [isConnected, address, farcasterUser, isSDKLoaded, walletProfile]); // ❌ USUNIĘTE gameMode - nie resetuj statystyk przy zmianie trybu
 
   // ============================================
   // 🔒 SECURITY FIX: Reset Guest Identity on Wallet Disconnect
@@ -529,7 +551,7 @@ function App() {
             <h1 className="text-3xl sm:text-4xl font-bold neon-text mb-4 text-center shrink-0">SNAKE NEON ARENA</h1>
             
             <div className="text-center text-neon-blue font-bold tracking-widest text-sm mb-4 -mt-2 animate-pulse">
-               HELLO, {farcasterUser?.username ? farcasterUser.username.toUpperCase() : 'PLAYER'}! 👾
+               HELLO, {(farcasterUser?.username || walletProfile?.displayName || 'PLAYER').toUpperCase()}! 👾
             </div>
 
             <div className="mb-4 flex justify-center shrink-0">
@@ -545,7 +567,9 @@ function App() {
                         return (
                           <div className="flex gap-2">
                             <button onClick={openChainModal} className="px-3 py-2 rounded-xl bg-white/5 border border-white/10 text-white font-bold flex items-center gap-2 hover:bg-white/10 transition-all">{chain.name}</button>
-                            <button onClick={openAccountModal} className="px-4 py-2 rounded-xl bg-gradient-to-r from-neon-blue/20 to-purple-500/20 border border-neon-blue/50 text-white font-bold shadow-[0_0_10px_rgba(0,240,255,0.2)] hover:scale-105 transition-all">👤 {account.displayName}</button>
+                            <button onClick={openAccountModal} className="px-4 py-2 rounded-xl bg-gradient-to-r from-neon-blue/20 to-purple-500/20 border border-neon-blue/50 text-white font-bold shadow-[0_0_10px_rgba(0,240,255,0.2)] hover:scale-105 transition-all">
+                              👤 {walletProfile?.displayName || 'Wallet Player'}
+                            </button>
                           </div>
                         );
                       })()}
@@ -664,18 +688,31 @@ function App() {
             onShare={() => { 
               const modeName = gameMode === 'walls' ? '⚡ Time Blitz' : gameMode === 'chill' ? '🧘 Zen Flow' : '🏆 Classic';      
               const text = `🐍 Just scored ${score} points in Snake Neon Arena!\n\nMode: ${modeName}\nSkin: ${activeSkinObj.name}\n\nCan you beat my high score? 👇`;          
-              const gameUrl = "https://snake-neon-arena.vercel.app"; 
-              const shareUrl = `https://warpcast.com/~/compose?text=${encodeURIComponent(text)}&embeds[]=${encodeURIComponent(gameUrl)}`;
+              const gameUrl = "https://snake-neon-arena.vercel.app";
+              const shareText = `${text}\n\n${gameUrl}`;
               (async () => {
                 try {
-                  if (sdk?.actions?.composeCast) {
-                    await sdk.actions.composeCast({ text, embeds: [gameUrl] });
+                  if (navigator?.share) {
+                    await navigator.share({ text, url: gameUrl });
                     return;
                   }
                 } catch (err) {
-                  console.warn('composeCast failed, falling back to warpcast:', err);
+                  console.warn('Web Share failed:', err);
                 }
-                sdk.actions.openUrl(shareUrl);
+                try {
+                  if (navigator?.clipboard?.writeText) {
+                    await navigator.clipboard.writeText(shareText);
+                    setShareCopied(true);
+                    setSharePayload({ text, url: gameUrl });
+                    setShowShareModal(true);
+                    return;
+                  }
+                } catch (err) {
+                  console.warn('Clipboard copy failed:', err);
+                }
+                setShareCopied(false);
+                setSharePayload({ text, url: gameUrl });
+                setShowShareModal(true);
               })();
             }}            
             applesCollected={applesCollected}
@@ -706,6 +743,52 @@ function App() {
               setPlayerStats(stats);
             }}
           />
+        )}
+
+        {showShareModal && sharePayload && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+            <div className="glass rounded-2xl p-5 w-full max-w-md border border-white/10 shadow-[0_0_30px_rgba(0,0,0,0.6)]">
+              <h3 className="text-xl font-bold neon-text mb-2 text-center">Share Your Score</h3>
+              <p className="text-xs text-gray-400 text-center mb-3">
+                Copy the text below and share anywhere.
+              </p>
+              <textarea
+                readOnly
+                value={`${sharePayload.text}\n\n${sharePayload.url}`}
+                className="w-full h-32 p-3 rounded-xl bg-black/40 border border-white/10 text-xs text-gray-200 resize-none"
+              />
+              <div className="flex gap-2 mt-4">
+                <button
+                  onClick={async () => {
+                    const payload = `${sharePayload.text}\n\n${sharePayload.url}`;
+                    try {
+                      if (navigator?.clipboard?.writeText) {
+                        await navigator.clipboard.writeText(payload);
+                        setShareCopied(true);
+                      } else {
+                        setShareCopied(false);
+                      }
+                    } catch {
+                      setShareCopied(false);
+                    }
+                  }}
+                  className="btn-primary flex-1 py-2 text-sm"
+                >
+                  {shareCopied ? 'Copied!' : 'Copy Text'}
+                </button>
+                <button
+                  onClick={() => {
+                    setShowShareModal(false);
+                    setShareCopied(false);
+                    setSharePayload(null);
+                  }}
+                  className="btn-secondary flex-1 py-2 text-sm"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
         )}
         
       </div>
