@@ -1,3 +1,5 @@
+// Updated game configuration for Base network - Jan 2026
+
 // src/utils/constants.js
 
 export const GRID_SIZE = 20;
