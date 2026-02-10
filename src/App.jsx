@@ -698,6 +698,19 @@ function App() {
               const gameUrl = "https://snake-neon-arena.vercel.app";
               const shareText = `${text}\n\n${gameUrl}`;
               (async () => {
+                // 🚀 Farcaster / Base App — native composeCast
+                try {
+                  if (sdk?.actions?.composeCast) {
+                    await sdk.actions.composeCast({
+                      text,
+                      embeds: [gameUrl],
+                    });
+                    return;
+                  }
+                } catch (err) {
+                  console.warn('composeCast failed:', err);
+                }
+                // Fallback: Web Share API
                 try {
                   if (navigator?.share) {
                     await navigator.share({ text, url: gameUrl });
@@ -706,6 +719,7 @@ function App() {
                 } catch (err) {
                   console.warn('Web Share failed:', err);
                 }
+                // Fallback: clipboard + modal
                 try {
                   if (navigator?.clipboard?.writeText) {
                     await navigator.clipboard.writeText(shareText);
