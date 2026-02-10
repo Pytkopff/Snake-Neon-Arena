@@ -136,13 +136,13 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      className="fixed inset-0 bg-black/90 backdrop-blur-md z-[60] flex items-center justify-center p-4"
+      className="fixed inset-0 bg-black/90 backdrop-blur-md z-[60] flex items-center justify-center p-4 overflow-y-auto"
     >
       <motion.div
         initial={{ scale: 0.9, y: 30 }}
         animate={{ scale: 1, y: 0 }}
         transition={{ type: 'spring', damping: 20 }}
-        className="glass rounded-2xl p-6 w-full max-w-sm text-center border border-white/10 shadow-[0_0_50px_rgba(0,0,0,0.5)] relative overflow-hidden"
+        className="glass rounded-2xl p-6 w-full max-w-sm text-center border border-white/10 shadow-[0_0_50px_rgba(0,0,0,0.5)] relative overflow-hidden my-auto shrink-0"
       >
         
         {/* Tło dla Nowego Rekordu */}
