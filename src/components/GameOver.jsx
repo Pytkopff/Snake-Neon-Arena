@@ -1,11 +1,78 @@
 import { motion } from 'framer-motion';
 import { useState, useEffect } from 'react';
+import { useAccount, useWalletClient, useSwitchChain, usePublicClient } from 'wagmi';
+import { ethers } from 'ethers';
+import { getAddress } from 'viem';
+import sdk from '@farcaster/frame-sdk';
+
+// 🏆 Badge mint constants (tokenId 0 = Hello World free badge)
+const RAW_CONTRACT_ADDRESS = "0x720579D73BD6f9b16A4749D9D401f31ed9a418D7";
+const BASE_CHAIN_ID = 8453;
+const iface = new ethers.utils.Interface([
+  "function claim(address receiver, uint256 tokenId, uint256 quantity, address currency, uint256 pricePerToken, tuple(bytes32[] proof, uint256 quantityLimitPerWallet, uint256 pricePerToken, address currency) allowlistProof, bytes data)"
+]);
+const NATIVE_TOKEN = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
+const MAX_UINT256 = "115792089237316195423570985008687907853269984665640564039457584007913129639935";
 
 const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare, onBackToMenu, endReason, applesCollected }) => {
   const [displayScore, setDisplayScore] = useState(0);
   
   // 🔥 FIX 1: Stan blokady przycisków (Anti-Rage Click)
   const [canInteract, setCanInteract] = useState(false);
+
+  // 🏆 Badge mint state
+  const [isMinting, setIsMinting] = useState(false);
+  const [mintResult, setMintResult] = useState(null); // null | 'success' | 'error'
+  const { address, chainId } = useAccount();
+  const { data: walletClient } = useWalletClient();
+  const { switchChainAsync } = useSwitchChain();
+  const publicClient = usePublicClient();
+
+  const handleMintBadge = async () => {
+    if (!address || !walletClient) return;
+    setIsMinting(true);
+    setMintResult(null);
+    try {
+      if (chainId !== BASE_CHAIN_ID) {
+        try {
+          await switchChainAsync({ chainId: BASE_CHAIN_ID });
+        } catch {
+          alert("Please switch to Base network manually.");
+          setIsMinting(false);
+          return;
+        }
+      }
+      const cleanContractAddress = getAddress(RAW_CONTRACT_ADDRESS.trim());
+      const cleanCurrency = getAddress(NATIVE_TOKEN);
+      const allowlistProof = {
+        proof: [],
+        quantityLimitPerWallet: MAX_UINT256,
+        pricePerToken: 0n,
+        currency: cleanCurrency
+      };
+      const txData = iface.encodeFunctionData("claim", [
+        address, 0, 1, cleanCurrency, 0n, allowlistProof, "0x"
+      ]);
+      const hash = await walletClient.sendTransaction({
+        account: address,
+        to: cleanContractAddress,
+        data: txData,
+        value: 0n,
+      });
+      if (publicClient) {
+        const receipt = await publicClient.waitForTransactionReceipt({ hash });
+        if (receipt.status !== 'success') throw new Error("Transaction failed");
+      }
+      setMintResult('success');
+    } catch (err) {
+      console.error("❌ Badge Mint Error:", err);
+      if (!err.message?.includes("User rejected")) {
+        setMintResult('error');
+      }
+    } finally {
+      setIsMinting(false);
+    }
+  };
 
   // 1. EFEKT KASYNA (Ticker)
   useEffect(() => {
@@ -129,6 +196,49 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
             <div className="text-[10px] text-gray-400 uppercase font-bold">Max Combo</div>
           </div>
         </div>
+
+        {/* --- 🏆 BADGE MINT SECTION --- */}
+        {address && (
+          <div 
+            className="mb-4 relative z-10"
+            style={{
+              opacity: canInteract ? 1 : 0,
+              transition: 'opacity 0.5s ease-in'
+            }}
+          >
+            {mintResult === 'success' ? (
+              <div className="flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-green-500/10 border border-green-500/30">
+                <span className="text-lg">✅</span>
+                <span className="text-sm font-bold text-green-400">Badge Claimed!</span>
+              </div>
+            ) : (
+              <button
+                onClick={handleMintBadge}
+                disabled={isMinting}
+                className={`w-full flex items-center justify-between py-3 px-4 rounded-xl border transition-all
+                  ${isMinting 
+                    ? 'bg-white/5 border-white/10 cursor-wait' 
+                    : 'bg-gradient-to-r from-yellow-500/10 to-orange-500/10 border-yellow-500/30 hover:border-yellow-400/50 hover:scale-[1.01] active:scale-[0.99]'
+                  }`}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-lg">🏆</span>
+                  <div className="text-left">
+                    <div className="text-sm font-bold text-white leading-tight">Hello World Badge</div>
+                    <div className="text-[10px] text-gray-400">Free mint on Base</div>
+                  </div>
+                </div>
+                <div className={`text-[11px] font-bold px-3 py-1.5 rounded-lg transition-all
+                  ${isMinting 
+                    ? 'bg-gray-600 text-gray-300' 
+                    : 'bg-gradient-to-r from-yellow-500 to-orange-500 text-black shadow-[0_0_10px_rgba(234,179,8,0.3)]'
+                  }`}>
+                  {isMinting ? 'MINTING...' : mintResult === 'error' ? 'RETRY' : 'CLAIM FREE'}
+                </div>
+              </button>
+            )}
+          </div>
+        )}
 
         {/* --- PRZYCISKI Z OCHRONĄ PRZED RAGE-CLICK --- */}
         <div 
