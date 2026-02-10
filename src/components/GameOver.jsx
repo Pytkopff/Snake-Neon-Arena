@@ -2,12 +2,13 @@ import { motion } from 'framer-motion';
 import { useState, useEffect } from 'react';
 import { useAccount, useWalletClient, useSwitchChain, usePublicClient } from 'wagmi';
 import { ethers } from 'ethers';
-import { getAddress } from 'viem';
+import { getAddress, parseEther } from 'viem';
 import sdk from '@farcaster/frame-sdk';
 
-// 🏆 Badge mint constants (tokenId 0 = Hello World free badge)
+// 🏆 Badge mint constants
 const RAW_CONTRACT_ADDRESS = "0x720579D73BD6f9b16A4749D9D401f31ed9a418D7";
 const BASE_CHAIN_ID = 8453;
+const PAID_MINT_PRICE = parseEther("0.00034");
 const iface = new ethers.utils.Interface([
   "function claim(address receiver, uint256 tokenId, uint256 quantity, address currency, uint256 pricePerToken, tuple(bytes32[] proof, uint256 quantityLimitPerWallet, uint256 pricePerToken, address currency) allowlistProof, bytes data)"
 ]);
@@ -20,25 +21,44 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
   // 🔥 FIX 1: Stan blokady przycisków (Anti-Rage Click)
   const [canInteract, setCanInteract] = useState(false);
 
-  // 🏆 Badge mint state
-  const [isMinting, setIsMinting] = useState(false);
-  const [mintResult, setMintResult] = useState(null); // null | 'success' | 'error'
+  // 🏆 Badge mint state (osobny stan dla każdego badge'a)
+  const [mintingId, setMintingId] = useState(null); // null | 0 | 2 (który badge się mintuje)
+  const [mintResults, setMintResults] = useState({}); // { 0: 'success', 2: 'error' }
+  const [walletBalance, setWalletBalance] = useState(0n);
+  const [balanceLoaded, setBalanceLoaded] = useState(false);
   const { address, chainId } = useAccount();
   const { data: walletClient } = useWalletClient();
   const { switchChainAsync } = useSwitchChain();
   const publicClient = usePublicClient();
 
-  const handleMintBadge = async () => {
+  // Sprawdź balans walleta (potrzebne dla paid mint)
+  useEffect(() => {
+    let isMounted = true;
+    const loadBalance = async () => {
+      if (!publicClient || !address) return;
+      try {
+        const balance = await publicClient.getBalance({ address });
+        if (isMounted) { setWalletBalance(balance); setBalanceLoaded(true); }
+      } catch { if (isMounted) { setWalletBalance(0n); setBalanceLoaded(false); } }
+    };
+    loadBalance();
+    return () => { isMounted = false; };
+  }, [publicClient, address, chainId]);
+
+  const handleMintBadge = async (tokenId) => {
     if (!address || !walletClient) return;
-    setIsMinting(true);
-    setMintResult(null);
+    const isPaid = tokenId === 2;
+    const price = isPaid ? PAID_MINT_PRICE : 0n;
+
+    setMintingId(tokenId);
+    setMintResults(prev => ({ ...prev, [tokenId]: null }));
     try {
       if (chainId !== BASE_CHAIN_ID) {
         try {
           await switchChainAsync({ chainId: BASE_CHAIN_ID });
         } catch {
           alert("Please switch to Base network manually.");
-          setIsMinting(false);
+          setMintingId(null);
           return;
         }
       }
@@ -47,30 +67,30 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
       const allowlistProof = {
         proof: [],
         quantityLimitPerWallet: MAX_UINT256,
-        pricePerToken: 0n,
+        pricePerToken: price,
         currency: cleanCurrency
       };
       const txData = iface.encodeFunctionData("claim", [
-        address, 0, 1, cleanCurrency, 0n, allowlistProof, "0x"
+        address, tokenId, 1, cleanCurrency, price, allowlistProof, "0x"
       ]);
       const hash = await walletClient.sendTransaction({
         account: address,
         to: cleanContractAddress,
         data: txData,
-        value: 0n,
+        value: price,
       });
       if (publicClient) {
         const receipt = await publicClient.waitForTransactionReceipt({ hash });
         if (receipt.status !== 'success') throw new Error("Transaction failed");
       }
-      setMintResult('success');
+      setMintResults(prev => ({ ...prev, [tokenId]: 'success' }));
     } catch (err) {
       console.error("❌ Badge Mint Error:", err);
       if (!err.message?.includes("User rejected")) {
-        setMintResult('error');
+        setMintResults(prev => ({ ...prev, [tokenId]: 'error' }));
       }
     } finally {
-      setIsMinting(false);
+      setMintingId(null);
     }
   };
 
@@ -200,23 +220,24 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
         {/* --- 🏆 BADGE MINT SECTION --- */}
         {address && (
           <div 
-            className="mb-4 relative z-10"
+            className="space-y-2 mb-4 relative z-10"
             style={{
               opacity: canInteract ? 1 : 0,
               transition: 'opacity 0.5s ease-in'
             }}
           >
-            {mintResult === 'success' ? (
-              <div className="flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-green-500/10 border border-green-500/30">
-                <span className="text-lg">✅</span>
-                <span className="text-sm font-bold text-green-400">Badge Claimed!</span>
+            {/* Hello World Badge (FREE) */}
+            {mintResults[0] === 'success' ? (
+              <div className="flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-green-500/10 border border-green-500/30">
+                <span className="text-base">✅</span>
+                <span className="text-xs font-bold text-green-400">Hello World Claimed!</span>
               </div>
             ) : (
               <button
-                onClick={handleMintBadge}
-                disabled={isMinting}
-                className={`w-full flex items-center justify-between py-3 px-4 rounded-xl border transition-all
-                  ${isMinting 
+                onClick={() => handleMintBadge(0)}
+                disabled={mintingId !== null}
+                className={`w-full flex items-center justify-between py-2.5 px-4 rounded-xl border transition-all
+                  ${mintingId === 0 
                     ? 'bg-white/5 border-white/10 cursor-wait' 
                     : 'bg-gradient-to-r from-yellow-500/10 to-orange-500/10 border-yellow-500/30 hover:border-yellow-400/50 hover:scale-[1.01] active:scale-[0.99]'
                   }`}
@@ -229,11 +250,50 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
                   </div>
                 </div>
                 <div className={`text-[11px] font-bold px-3 py-1.5 rounded-lg transition-all
-                  ${isMinting 
+                  ${mintingId === 0 
                     ? 'bg-gray-600 text-gray-300' 
                     : 'bg-gradient-to-r from-yellow-500 to-orange-500 text-black shadow-[0_0_10px_rgba(234,179,8,0.3)]'
                   }`}>
-                  {isMinting ? 'MINTING...' : mintResult === 'error' ? 'RETRY' : 'CLAIM FREE'}
+                  {mintingId === 0 ? 'MINTING...' : mintResults[0] === 'error' ? 'RETRY' : 'CLAIM FREE'}
+                </div>
+              </button>
+            )}
+
+            {/* Supporter Badge (PAID) */}
+            {mintResults[2] === 'success' ? (
+              <div className="flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-green-500/10 border border-green-500/30">
+                <span className="text-base">✅</span>
+                <span className="text-xs font-bold text-green-400">Supporter Badge Claimed!</span>
+              </div>
+            ) : (
+              <button
+                onClick={() => handleMintBadge(2)}
+                disabled={mintingId !== null || (balanceLoaded && walletBalance < PAID_MINT_PRICE)}
+                className={`w-full flex items-center justify-between py-2.5 px-4 rounded-xl border transition-all
+                  ${mintingId === 2 
+                    ? 'bg-white/5 border-white/10 cursor-wait' 
+                    : (balanceLoaded && walletBalance < PAID_MINT_PRICE)
+                      ? 'bg-white/5 border-white/5 opacity-50 cursor-not-allowed'
+                      : 'bg-gradient-to-r from-cyan-500/10 to-teal-500/10 border-cyan-500/30 hover:border-cyan-400/50 hover:scale-[1.01] active:scale-[0.99]'
+                  }`}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-lg">💎</span>
+                  <div className="text-left">
+                    <div className="text-sm font-bold text-white leading-tight">Supporter Badge</div>
+                    <div className="text-[10px] text-gray-400">
+                      {balanceLoaded && walletBalance < PAID_MINT_PRICE ? 'Not enough ETH' : 'Support the Dev'}
+                    </div>
+                  </div>
+                </div>
+                <div className={`text-[11px] font-bold px-3 py-1.5 rounded-lg transition-all
+                  ${mintingId === 2 
+                    ? 'bg-gray-600 text-gray-300' 
+                    : (balanceLoaded && walletBalance < PAID_MINT_PRICE)
+                      ? 'bg-gray-700 text-gray-400'
+                      : 'bg-gradient-to-r from-cyan-500 to-teal-500 text-black shadow-[0_0_10px_rgba(0,240,255,0.3)]'
+                  }`}>
+                  {mintingId === 2 ? 'MINTING...' : mintResults[2] === 'error' ? 'RETRY' : '0.00034 ETH'}
                 </div>
               </button>
             )}
