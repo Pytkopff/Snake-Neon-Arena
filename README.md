@@ -1,17 +1,58 @@
-# Snake Neon Arena 🐍
+# 🐍 Snake Neon Arena
 
-A modern Snake game with neon aesthetics, built for Farcaster Frames using React + Vite. Features multiple game modes, power-ups, skins, missions, and a global leaderboard system.
+**A casual arcade game with neon aesthetics — play instantly in your browser.**
 
-## Features
+🎮 **[Play Now → snake-neon-arena.vercel.app](https://snake-neon-arena.vercel.app)**
 
-- **3 Game Modes**: Classic, Time Blitz (60s), and Zen Flow
-- **Power-ups**: Speed boost, Score multiplier, Magnet, Shield, and Time Freeze
-- **Skins & Missions**: Unlock new snake skins by completing challenges
-- **Daily Rewards**: Log in daily for bonus apples (up to 1000 on day 7!)
-- **Global Leaderboard**: Compete with players worldwide
-- **Cross-Platform Identity**: Your progress follows you across Farcaster and wallet login
+Built as a Farcaster miniapp on Base. No downloads, no wallet required — just play.
 
-## Setup
+---
+
+## ✨ Features
+
+| Feature | Description |
+|---------|-------------|
+| 🏆 **3 Game Modes** | Neon Ranked (classic), Time Blitz (60s survival), Zen Flow (relaxing) |
+| ⚡ **Power-ups** | Speed Boost, Score Multiplier, Magnet, Shield, Time Freeze |
+| 🎨 **Skins & Missions** | Unlock snake skins by completing gameplay challenges |
+| 🎁 **Daily Rewards** | 7-day streak system, up to 1000 bonus apples |
+| 🌐 **Global Leaderboard** | Compete worldwide with cross-platform identity |
+| 🪪 **Unified Identity** | Farcaster, wallet, and guest sessions merge into one profile |
+| 📱 **Mobile Support** | Full touch controls with virtual D-pad |
+| 🏅 **NFT Badges** | Optional on-chain badge minting on Base |
+
+## 🎮 Game Modes
+
+**Neon Ranked** — Classic snake with increasing difficulty. Hit walls or yourself = game over.
+
+**Time Blitz** — 60-second survival. Walls wrap around, power-ups extend time.
+
+**Zen Flow** — Relaxing 2-minute session. No death, walls wrap, chill music.
+
+## 🛠️ Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Frontend | React 19, Vite, Tailwind CSS, Framer Motion |
+| Backend | Supabase (PostgreSQL + Real-time) |
+| Web3 | RainbowKit, Wagmi, Viem, Thirdweb (Base chain) |
+| Farcaster | Frame SDK for miniapp integration |
+| Audio | Howler.js for sound effects and music |
+
+## 🗺️ Project Status
+
+- [x] Core Gameplay — Classic, Time Blitz, and Zen Flow modes
+- [x] Mobile Support — Full touch control optimization
+- [x] Farcaster Frame & Wallet Connect integration
+- [x] Global Leaderboards & Daily Rewards
+- [x] NFT Badge minting on Base
+- [ ] Multi-chain expansion 🔜
+- [ ] Seasonal Skins & Community Events 🎨
+
+---
+
+<details>
+<summary><strong>🔧 Developer Setup</strong></summary>
 
 ### 1. Install Dependencies
 
@@ -56,7 +97,10 @@ npm run dev
 
 The app will be available at `http://localhost:5173`
 
-## Leaderboard System
+</details>
+
+<details>
+<summary><strong>🔑 Identity System</strong></summary>
 
 The game uses a **TEXT-based identity system** with priority:
 
@@ -64,46 +108,16 @@ The game uses a **TEXT-based identity system** with priority:
 2. **Wallet Address** (`0x...`) - Second priority
 3. **Guest UUID** (`guest:uuid`) - Fallback for anonymous players
 
-All game sessions are stored in the `game_sessions` table and aggregated by `canonical_user_id` for unified player identity across platforms. This means:
+All game sessions are aggregated by `canonical_user_id` for unified identity:
 
-- Play as a guest, then connect your wallet → your scores merge
-- Connect Farcaster later → all your previous games are attributed to your FID
+- Play as a guest, then connect your wallet → scores merge
+- Connect Farcaster later → all previous games attributed to your FID
 - One identity, multiple login methods
 
-## Game Modes
+</details>
 
-### 🏆 Neon Ranked (Classic)
-Traditional snake gameplay with increasing difficulty. Hit walls or yourself = game over.
-
-### ⚡ Time Blitz
-Survive for 60 seconds! Walls wrap around, collect power-ups to extend time.
-
-### 🧘 Zen Flow
-Relaxing 2-minute mode with chill music. No death, walls wrap, pure vibes.
-
-## Tech Stack
-
-- **Frontend**: React 19, Vite, Tailwind CSS, Framer Motion
-- **Backend**: Supabase (PostgreSQL + Real-time)
-- **Web3**: RainbowKit, Wagmi, Ethers.js (Base chain)
-- **Farcaster**: Frame SDK for miniapp integration
-- **Audio**: Howler.js for sound effects and music
-
-## Build for Production
-
-```bash
-npm run build
-```
-
-Output will be in the `dist/` directory, ready to deploy to Vercel or any static hosting.
-
-## Deployment Notes
-
-- **Vercel**: The `vercel.json` is configured for SPA routing and Farcaster Frame manifest
-- **Environment Variables**: Add all `VITE_*` variables to your hosting platform's environment settings
-- **Farcaster Manifest**: Update `public/.well-known/farcaster.json` with your production URL
-
-## Project Structure
+<details>
+<summary><strong>📁 Project Structure</strong></summary>
 
 ```
 src/
@@ -122,21 +136,30 @@ src/
 └── App.jsx                     # Main application component
 ```
 
-## Development Tips
+</details>
 
-- **Linting**: `npm run lint` to check for code issues
-- **Preview Build**: `npm run preview` to test production build locally
-- **Mobile Testing**: The dev server runs on `0.0.0.0:5173` for network access
+<details>
+<summary><strong>🚀 Build & Deployment</strong></summary>
 
-## 🗺️ Project Status
+```bash
+npm run build
+```
 
-The core game mechanics are fully implemented and optimized for Base.
+Output will be in the `dist/` directory.
 
-- [x] **Core Gameplay:** Classic, Time Blitz, and Zen Flow modes
-- [x] **Mobile Support:** Full touch control optimization
-- [x] **Integration:** Farcaster Frame & Wallet Connect
-- [x] **Social:** Global Leaderboards & Daily Rewards
-- [ ] **Upcoming:** Seasonal Skins & Community Events 🎨
+**Deployment notes:**
+- **Vercel**: `vercel.json` is configured for SPA routing and Farcaster Frame manifest
+- **Environment Variables**: Add all `VITE_*` variables to your hosting platform
+- **Farcaster Manifest**: Update `public/.well-known/farcaster.json` with your production URL
+
+**Dev tips:**
+- Linting: `npm run lint`
+- Preview build: `npm run preview`
+- Mobile testing: dev server runs on `0.0.0.0:5173`
+
+</details>
+
+---
 
 ## License
 
@@ -144,4 +167,4 @@ MIT
 
 ## Credits
 
-Built with ❤️ for the Farcaster ecosystem on Base.
+Built by [@Pytkopff](https://github.com/Pytkopff) for the Farcaster ecosystem on Base.
