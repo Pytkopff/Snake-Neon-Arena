@@ -167,6 +167,23 @@ function App() {
     console.log('🔑 Current Canonical ID set to:', canonicalId);
     setCurrentCanonicalId(canonicalId);
     
+    // 🔥 FIX: Detect identity change and clear local scores to prevent contamination
+    // Prevents "Split Personality" bug: old scores (e.g. pytek=5385) leaking to a new profile
+    // (e.g. Pulse Shark) when user opens game in a different context (browser without Farcaster SDK)
+    if (canonicalId) {
+      const previousCanonicalId = localStorage.getItem('snake_canonical_id');
+      if (previousCanonicalId && previousCanonicalId !== canonicalId) {
+        console.warn('🧹 Identity changed! Clearing local scores to prevent contamination.');
+        console.warn(`   Previous: ${previousCanonicalId} → Current: ${canonicalId}`);
+        [
+          'snake_best_score', 'snake_best_score_walls', 'snake_best_score_chill',
+          'snake_total_apples', 'snake_total_apples_gross', 'snake_apples_spent',
+          'snake_total_games'
+        ].forEach(k => localStorage.removeItem(k));
+      }
+      localStorage.setItem('snake_canonical_id', canonicalId);
+    }
+
     // dopiero po udanym sync/merge czyścimy guestId, żeby nie tworzyć kolejnych guest profili po zalogowaniu
     if (isLoggedIn && canonicalId) {
       localStorage.removeItem('snake_guest_id');
@@ -205,12 +222,15 @@ function App() {
 
       // 1) Fresh guest identity
       localStorage.removeItem('snake_guest_id');
+      localStorage.removeItem('snake_canonical_id'); // 🔥 FIX: Clear canonical ID tracker on disconnect
       const newGuestId = crypto.randomUUID();
       localStorage.setItem('snake_guest_id', newGuestId);
 
       // 2) Reset local progress (treat as a brand new guest)
       [
         'snake_total_apples',
+        'snake_total_apples_gross',
+        'snake_apples_spent',
         'snake_total_games',
         'snake_best_score',
         'snake_best_score_walls',

@@ -71,6 +71,15 @@ export const fetchBestScoresFromDB = async (canonicalId) => {
 export const syncLocalScoresToDB = async (canonicalId, localScores, dbScores) => {
   if (!canonicalId) return;
 
+  // 🔥 SAFETY: Don't sync local scores if they belong to a different identity
+  // This prevents the "Split Personality" bug where old scores leak to a new profile
+  const storedCanonicalId = localStorage.getItem('snake_canonical_id');
+  if (storedCanonicalId && storedCanonicalId !== canonicalId) {
+    console.warn('⚠️ syncLocalScoresToDB: canonical ID mismatch — skipping sync to prevent score contamination');
+    console.warn(`   localStorage: ${storedCanonicalId}, target: ${canonicalId}`);
+    return;
+  }
+
   try {
     const modesToSync = [];
     
