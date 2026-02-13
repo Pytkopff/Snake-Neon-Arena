@@ -14,7 +14,7 @@ const PAID_MINT_PRICE = parseEther("0.00034");
 const MAX_UINT256 = "115792089237316195423570985008687907853269984665640564039457584007913129639935";
 
 // 🔥 NOWE: Attribution Suffix dla Base (ERC-8021)
-const ATTRIBUTION_SUFFIX = '0x07626f696b356e77710080218021802180218021802180218021';
+const ATTRIBUTION_SUFFIX = '0x626f696b356e7771080080218021802180218021802180218021';
 
 const iface = new ethers.utils.Interface([
   "function claim(address receiver, uint256 tokenId, uint256 quantity, address currency, uint256 pricePerToken, tuple(bytes32[] proof, uint256 quantityLimitPerWallet, uint256 pricePerToken, address currency) allowlistProof, bytes data)"
@@ -95,20 +95,20 @@ const SkinMissionsPanel = ({
       };
 
       // 1. Encode standard calldata
-      const txData = iface.encodeFunctionData("claim", [
-        address, tokenId, 1, cleanCurrency, pricePerToken, allowlistProof, "0x"
-      ]);
+const txData = iface.encodeFunctionData("claim", [
+  address, tokenId, 1, cleanCurrency, pricePerToken, allowlistProof, "0x"
+]);
 
-      // 2. 🔥 DOKLEJAMY SUFFIX (Hack na attribution)
-      const fullData = txData + ATTRIBUTION_SUFFIX.slice(2);
+// 2. 🔥 DOKLEJAMY SUFFIX (Hack na attribution)
+const fullData = txData + '626f696b356e7771080080218021802180218021802180218021';
 
-      // 3. Wysyłamy przez standardowy walletClient
-      const hash = await walletClient.sendTransaction({
-        to: cleanContractAddress,
-        data: fullData, // Zmodyfikowane dane z suffixem
-        value: pricePerToken,
-        chain: null
-      });
+// 3. Wysyłamy przez standardowy walletClient
+const hash = await walletClient.sendTransaction({
+  to: cleanContractAddress,
+  data: fullData, // ← TU JEST ZMIANA – fullData zamiast txData
+  value: pricePerToken,
+  chain: null
+});
 
       console.log("✅ Hash:", hash);
 
