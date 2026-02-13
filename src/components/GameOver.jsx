@@ -49,78 +49,81 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
   }, [publicClient, address, chainId]);
 
   const handleMintBadge = async (tokenId) => {
-    if (!address) return;
-    
-    // 🔥 Fallback: Jeśli wallet nie jest gotowy (np. zwykła przeglądarka bez portfela)
-    if (!walletClient) {
-      alert("Please open this app in Base App or connect a wallet.");
-      return;
+  if (!address) return;
+
+  if (!walletClient) {
+    alert("Please open this app in Base App or connect a wallet.");
+    return;
+  }
+
+  const isPaid = tokenId === 2;
+  const price = isPaid ? PAID_MINT_PRICE : 0n;
+
+  setMintingId(tokenId);
+  setMintResults(prev => ({ ...prev, [tokenId]: null }));
+
+  try {
+    console.log("=== MINT START (GameOver) ===");
+    console.log("WalletClient gotowy:", !!walletClient);
+
+    if (chainId !== BASE_CHAIN_ID) {
+      console.log("Switch chain start...");
+      await switchChainAsync({ chainId: BASE_CHAIN_ID });
+      console.log("Switch chain OK");
     }
 
-    const isPaid = tokenId === 2;
-    const price = isPaid ? PAID_MINT_PRICE : 0n;
+    // 🔥 DEFINICJA ZMIENNYCH – to było brakujące!
+    const cleanContractAddress = getAddress(RAW_CONTRACT_ADDRESS.trim());
+    const cleanCurrency = getAddress(NATIVE_TOKEN);
+    const allowlistProof = {
+      proof: [],
+      quantityLimitPerWallet: MAX_UINT256,
+      pricePerToken: price,
+      currency: cleanCurrency
+    };
 
-    setMintingId(tokenId);
-    setMintResults(prev => ({ ...prev, [tokenId]: null }));
-    
-    try {
-      if (chainId !== BASE_CHAIN_ID) {
-        try {
-          await switchChainAsync({ chainId: BASE_CHAIN_ID });
-        } catch {
-           console.warn("Switch chain skipped/failed");
-        }
-      }
+    console.log("Encode calldata start...");
+    console.log("Argumenty do encode:", { address, tokenId, quantity: 1, currency: cleanCurrency, price, allowlistProof, data: "0x" });
 
-      const cleanContractAddress = getAddress(RAW_CONTRACT_ADDRESS.trim());
-      const cleanCurrency = getAddress(NATIVE_TOKEN);
-      const allowlistProof = {
-        proof: [],
-        quantityLimitPerWallet: MAX_UINT256,
-        pricePerToken: price,
-        currency: cleanCurrency
-      };
+    const txData = iface.encodeFunctionData("claim", [
+      address,
+      tokenId,
+      1,
+      cleanCurrency,
+      price,
+      allowlistProof,
+      "0x"
+    ]);
+    console.log("txData gotowe:", txData.substring(0, 66) + "...");
 
-     // 1. Encode standard calldata
-const txData = iface.encodeFunctionData("claim", [
-  address, tokenId, 1, cleanCurrency, price, allowlistProof, "0x"
-]);
+    console.log("Doklejanie suffixu...");
+    const fullData = txData + ATTRIBUTION_SUFFIX.slice(2);
+    console.log("Full data z suffixem:", fullData.substring(0, 66) + "..." + fullData.slice(-32));
+    console.log("Suffix używany:", ATTRIBUTION_SUFFIX);
 
-// 2. 🔥 DOKLEJAMY SUFFIX (Hack na attribution)
-const fullData = txData + ATTRIBUTION_SUFFIX.slice(2);
+    console.log("Wysyłanie tx...");
+    const hash = await walletClient.sendTransaction({
+      to: cleanContractAddress,
+      data: fullData,
+      value: price,
+      chain: null
+    });
+    console.log("Hash:", hash);
 
-// 🔥 DODANE LOGI – sprawdzamy, czy wszystko jest OK
-console.log("WalletClient gotowy:", !!walletClient);          
-console.log("Original txData:", txData);                       
-console.log("Full data z suffixem:", fullData);                
-console.log("Suffix używany:", ATTRIBUTION_SUFFIX);            
-
-// 3. Wysyłamy przez standardowy walletClient
-const hash = await walletClient.sendTransaction({
-  to: cleanContractAddress,
-  data: fullData, 
-  value: price,
-  chain: null
-});
-
-      console.log("✅ Tx Hash:", hash);
-
-      if (publicClient && hash) {
-        const receipt = await publicClient.waitForTransactionReceipt({ hash });
-        if (receipt.status !== 'success') throw new Error("Transaction failed on-chain");
-      }
-
-      setMintResults(prev => ({ ...prev, [tokenId]: 'success' }));
-    } catch (err) {
-      console.error("❌ Badge Mint Error:", err);
-      if (!err.message?.includes("User rejected")) {
-        setMintResults(prev => ({ ...prev, [tokenId]: 'error' }));
-        alert("Mint failed: " + (err.message || "Unknown error"));
-      }
-    } finally {
-      setMintingId(null);
+    if (publicClient && hash) {
+      const receipt = await publicClient.waitForTransactionReceipt({ hash });
+      if (receipt.status !== 'success') throw new Error("Tx failed on-chain");
     }
-  };
+
+    setMintResults(prev => ({ ...prev, [tokenId]: 'success' }));
+  } catch (err) {
+    console.error("Mint error (GameOver):", err.message || err);
+    console.error("Error stack:", err.stack);
+    alert("Mint failed: " + (err.message || "Nieznany błąd"));
+  } finally {
+    setMintingId(null);
+  }
+};
 
   // Ticker Score
   useEffect(() => {
