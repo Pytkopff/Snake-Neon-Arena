@@ -21,18 +21,16 @@ import { QueryClientProvider, QueryClient } from "@tanstack/react-query";
 import { ThirdwebProvider } from "@thirdweb-dev/react";
 import { Base } from "@thirdweb-dev/chains"; 
 
-// vConsole – tylko w trybie deweloperskim (np. lokalnie / preview z DEV)
-if (import.meta.env.DEV) {
-  import('vconsole')
-    .then(({ default: VConsole }) => {
-      // Migracja na MiniKit – debug: włącz vConsole na urządzeniach mobilnych
-      // eslint-disable-next-line no-new
-      new VConsole();
-    })
-    .catch((err) => {
-      console.error('vConsole init failed:', err);
-    });
-}
+// --- IMPORT MINIKIT (KLUCZOWE!) ---
+import { MiniKitProvider } from '@farcaster/minikit';
+
+// --- VCONSOLE (DEBUGGING) ---
+// Importujemy statycznie i odpalamy ZAWSZE (usuń to przed ostatecznym release!)
+import VConsole from 'vconsole';
+
+// Inicjalizacja vConsole bezwarunkowa - żebyś widział logi na telefonie w Base App
+const vConsole = new VConsole();
+console.log("vConsole zainicjowany - wersja PROD/DEV");
 
 const APP_NAME = 'Snake Neo Arena';
 const APP_ORIGIN = globalThis?.location?.origin || 'https://snake-neon-arena.vercel.app';
@@ -63,7 +61,7 @@ const config = createConfig({
 
 const queryClient = new QueryClient();
 
-// Opcje SDK (zostawiamy fix z RPC, bo nie zaszkodzi, a pomaga stabilności)
+// Opcje SDK
 const thirdwebOptions = {
   readonlySettings: {
     chainId: 8453,
@@ -72,19 +70,19 @@ const thirdwebOptions = {
 };
 
 ReactDOM.createRoot(document.getElementById('root')).render(
-  // ❌ USUNIĘTO: <React.StrictMode>
-  // Zostawiamy tylko "mięso":
-  <ThirdwebProvider 
-    activeChain={Base} 
-    sdkOptions={thirdwebOptions}
-  >
-    <WagmiProvider config={config}>
-      <QueryClientProvider client={queryClient}>
-        <RainbowKitProvider theme={darkTheme()} coolMode>
-          <App />
-        </RainbowKitProvider>
-      </QueryClientProvider>
-    </WagmiProvider>
-  </ThirdwebProvider>
-  // ❌ USUNIĘTO: </React.StrictMode>
+  // 🔥 WRAPPER MINIKIT PROVIDER - BEZ TEGO NIE ZADZIAŁA!
+  <MiniKitProvider>
+    <ThirdwebProvider 
+      activeChain={Base} 
+      sdkOptions={thirdwebOptions}
+    >
+      <WagmiProvider config={config}>
+        <QueryClientProvider client={queryClient}>
+          <RainbowKitProvider theme={darkTheme()} coolMode>
+            <App />
+          </RainbowKitProvider>
+        </QueryClientProvider>
+      </WagmiProvider>
+    </ThirdwebProvider>
+  </MiniKitProvider>
 );

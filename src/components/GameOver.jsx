@@ -3,7 +3,7 @@ import { useState, useEffect } from 'react';
 import { useAccount, useSwitchChain, usePublicClient } from 'wagmi';
 import { ethers } from 'ethers';
 import { getAddress, parseEther } from 'viem';
-import sdk from '@farcaster/frame-sdk';
+// sdk import nie jest konieczny jeśli używasz globalThis.miniKit, ale nie przeszkadza
 
 // 🏆 Badge mint constants
 const RAW_CONTRACT_ADDRESS = "0x720579D73BD6f9b16A4749D9D401f31ed9a418D7";
@@ -21,23 +21,21 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
   // 🔥 FIX 1: Stan blokady przycisków (Anti-Rage Click)
   const [canInteract, setCanInteract] = useState(false);
 
-  // 🏆 Badge mint state (osobny stan dla każdego badge'a)
-  const [mintingId, setMintingId] = useState(null); // null | 0 | 2 (który badge się mintuje)
-  const [mintResults, setMintResults] = useState({}); // { 0: 'success', 2: 'error' }
+  // 🏆 Badge mint state
+  const [mintingId, setMintingId] = useState(null);
+  const [mintResults, setMintResults] = useState({}); 
   const [walletBalance, setWalletBalance] = useState(0n);
   const [balanceLoaded, setBalanceLoaded] = useState(false);
-  const [miniKitInitAlertShown, setMiniKitInitAlertShown] = useState(false);
+
+  // 🔥 NOWE: Stan dla MiniKit (zastępuje stałą z początku pliku)
+  const [isMiniKitReady, setIsMiniKitReady] = useState(false);
+  const [isMiniKitLoading, setIsMiniKitLoading] = useState(true);
+
   const { address, chainId } = useAccount();
   const { switchChainAsync } = useSwitchChain();
   const publicClient = usePublicClient();
-  const miniKit = typeof globalThis !== 'undefined' ? globalThis.miniKit : null;
-  const hasMiniKit = !!miniKit;
-  const isMiniKitReadyFlag = !!miniKit && miniKit.isReady !== false;
-  const isMiniKitAuthenticated = miniKit?.isAuthenticated !== false;
-  const hasMiniKitWallet = !!miniKit?.wallet;
-  const isMiniKitReady = hasMiniKit && isMiniKitReadyFlag && hasMiniKitWallet && isMiniKitAuthenticated;
 
-  // Sprawdź balans walleta (potrzebne dla paid mint)
+  // Sprawdź balans walleta
   useEffect(() => {
     let isMounted = true;
     const loadBalance = async () => {
@@ -51,45 +49,55 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
     return () => { isMounted = false; };
   }, [publicClient, address, chainId]);
 
-  // Delikatny polling MiniKit + timeout 10s
+  // 🔥 NOWE: Polling i sprawdzanie MiniKit co sekundę
   useEffect(() => {
-    let cancelled = false;
-    const start = Date.now();
+    // Jeśli już gotowy, nie sprawdzaj dalej
+    if (isMiniKitReady) return;
 
-    const logStatus = () => {
-      if (cancelled) return;
-      console.log('MiniKit check:', {
-        isReady: miniKit?.isReady,
-        wallet: !!miniKit?.wallet,
-        authenticated: miniKit?.isAuthenticated,
+    const checkMiniKit = () => {
+      const mk = globalThis.miniKit;
+      // Sprawdzamy czy obiekt istnieje i czy ma flagę isReady (lub czy wallet jest dostępny)
+      const ready = !!mk && !!mk.wallet; // Uproszczony warunek: jeśli jest wallet, to jest gotowy
+      
+      console.log('🔍 MiniKit Polling:', { 
+        found: !!mk, 
+        wallet: !!mk?.wallet, 
+        readyFlag: mk?.isReady 
       });
-      console.log('MiniKit full object (GameOver):', miniKit);
 
-      const elapsed = Date.now() - start;
-      if (
-        !miniKitInitAlertShown &&
-        elapsed >= 10000 &&
-        (!miniKit || miniKit.isReady === false)
-      ) {
-        alert('MiniKit nie mógł się zainicjować. Odśwież Base App lub spróbuj ponownie.');
-        setMiniKitInitAlertShown(true);
+      if (ready) {
+        setIsMiniKitReady(true);
+        setIsMiniKitLoading(false);
       }
     };
 
-    // Log od razu i potem co 2 sekundy
-    logStatus();
-    const intervalId = setInterval(logStatus, 2000);
+    // Sprawdź natychmiast
+    checkMiniKit();
+
+    // Sprawdzaj co 1s
+    const interval = setInterval(checkMiniKit, 1000);
+
+    // Timeout po 10s - przestań pokazywać loader, pokaż błąd/fallback
+    const timeout = setTimeout(() => {
+      setIsMiniKitLoading(false);
+      // Jeśli po 10s nadal nie ma, zostanie isMiniKitReady = false
+    }, 10000);
 
     return () => {
-      cancelled = true;
-      clearInterval(intervalId);
+      clearInterval(interval);
+      clearTimeout(timeout);
     };
-  }, [miniKit, miniKitInitAlertShown]);
+  }, [isMiniKitReady]);
+
 
   const handleMintBadge = async (tokenId) => {
     if (!address) return;
-    // Jeśli MiniKit nie jest gotowy / wallet niepodłączony – UI pokaże komunikat.
-    if (!hasMiniKit || !isMiniKitReadyFlag || !hasMiniKitWallet || !isMiniKitAuthenticated) {
+    
+    // Pobieramy instancję bezpośrednio z globalThis w momencie kliknięcia (najbezpieczniej)
+    const miniKit = globalThis.miniKit;
+
+    if (!miniKit || !miniKit.wallet) {
+      alert("MiniKit not ready. Try refreshing via Base App menu.");
       return;
     }
 
@@ -98,14 +106,14 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
 
     setMintingId(tokenId);
     setMintResults(prev => ({ ...prev, [tokenId]: null }));
+    
     try {
+      // Opcjonalne: switch chain (MiniKit zazwyczaj sam to ogarnia, ale zostawiamy dla wagmi)
       if (chainId !== BASE_CHAIN_ID) {
         try {
           await switchChainAsync({ chainId: BASE_CHAIN_ID });
         } catch {
-          alert("Please switch to Base network manually.");
-          setMintingId(null);
-          return;
+          // Ignorujemy błąd switcha tutaj, licząc że sendCalls sobie poradzi
         }
       }
 
@@ -122,9 +130,9 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
         address, tokenId, 1, cleanCurrency, price, allowlistProof, "0x"
       ]);
 
-      // Konwersja wartości na hex zgodny z przykładem MiniKit/Base
       const valueHex = `0x${price.toString(16)}`;
 
+      // 🔥 FIX 3: Poprawione wywołanie sendCalls z Twoim dataSuffix
       const result = await miniKit.wallet.sendCalls({
         calls: [
           {
@@ -134,53 +142,55 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
           },
         ],
         capabilities: {
-          dataSuffix: {
-            // Migracja na MiniKit – ERC-8021 attribution dodane
-            // TODO: Wstaw tutaj suffix wygenerowany w Encode Attribution tool dla swojego builder code
-            value: '0x07626f696b356e77710080218021802180218021802180218021',
-            optional: true,
-          },
+          paymasterService: {
+             // Jeśli masz URL paymastera, wpisz go tutaj, jeśli nie - usuń ten obiekt
+             // url: "..." 
+          }
         },
+        // Wg najnowszej dokumentacji dla Smart Wallet / attribution:
+        dataSuffix: '0x07626f696b356e77710080218021802180218021802180218021'
       });
 
-      // Próbujemy wyciągnąć hash transakcji z wyniku MiniKit (zostawiamy elastyczną obsługę)
+      console.log("MiniKit Result:", result);
+
+      // Obsługa różnych formatów odpowiedzi (Smart Wallet vs EOA)
       let hash = null;
       if (typeof result === 'string') {
         hash = result;
+      } else if (result?.transactions?.[0]?.hash) {
+        // Struktura z dokumentacji MiniKit
+        hash = result.transactions[0].hash;
       } else if (Array.isArray(result) && result[0]?.hash) {
         hash = result[0].hash;
-      } else if (result?.hash) {
-        hash = result.hash;
-      } else if (result?.transactions?.[0]?.hash) {
-        hash = result.transactions[0].hash;
       }
 
+      // Jeśli mamy hash i publicClient, czekamy na potwierdzenie
       if (publicClient && hash) {
         const receipt = await publicClient.waitForTransactionReceipt({ hash });
-        if (receipt.status !== 'success') throw new Error("Transaction failed");
+        if (receipt.status !== 'success') throw new Error("Transaction failed on-chain");
       }
 
       setMintResults(prev => ({ ...prev, [tokenId]: 'success' }));
     } catch (err) {
       console.error("❌ Badge Mint Error (MiniKit):", err);
-      if (!err.message?.includes("User rejected")) {
+      // Nie pokazuj błędu jeśli użytkownik anulował
+      if (!err.message?.includes("User rejected") && !err.message?.includes("rejected")) {
         setMintResults(prev => ({ ...prev, [tokenId]: 'error' }));
+        alert("Mint failed: " + (err.message || "Unknown error"));
       }
     } finally {
       setMintingId(null);
     }
   };
 
-  // 1. EFEKT KASYNA (Ticker)
+  // 1. Ticker Score
   useEffect(() => {
     let start = 0;
     const duration = 1500; 
     const steps = 60;
     const increment = score / steps;
     const stepTime = duration / steps;
-
     if (score === 0) return;
-
     const timer = setInterval(() => {
       start += increment;
       if (start >= score) {
@@ -190,22 +200,18 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
         setDisplayScore(Math.floor(start));
       }
     }, stepTime);
-
     return () => clearInterval(timer);
   }, [score]);
 
-  // 🔥 FIX 2: Timer odblokowujący przyciski (1.5 sekundy opóźnienia)
+  // 2. Timer Anti-Rage
   useEffect(() => {
     setCanInteract(false);
     const timer = setTimeout(() => {
       setCanInteract(true);
-    }, 1500); // 1500ms czasu na "ochłonięcie"
-
+    }, 1500);
     return () => clearTimeout(timer);
     }, [score]);
   
-
-  // 2. OBLICZENIA PASKA "CHASE"
   const progressToBest = bestScore > 0 ? Math.min(100, (score / bestScore) * 100) : 100;
   const missingPoints = bestScore - score;
 
@@ -221,7 +227,6 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
         transition={{ type: 'spring', damping: 20 }}
         className="glass rounded-2xl p-6 w-full max-w-sm text-center border border-white/10 shadow-[0_0_50px_rgba(0,0,0,0.5)] relative overflow-hidden my-auto shrink-0"
       >
-        
         {/* Tło dla Nowego Rekordu */}
         {isNewRecord && (
            <div className="absolute inset-0 bg-gradient-to-t from-yellow-500/10 via-purple-500/10 to-transparent animate-pulse pointer-events-none" />
@@ -253,7 +258,7 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
           )}
         </div>
 
-        {/* --- WYNIK GŁÓWNY (Licznik) --- */}
+        {/* --- WYNIK --- */}
         <div className="mb-6 relative z-10">
           <div className="text-6xl font-black text-white drop-shadow-[0_0_20px_rgba(0,240,255,0.4)] font-mono tracking-tighter">
             {displayScore.toLocaleString()}
@@ -261,7 +266,7 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
           <div className="text-xs text-neon-blue font-bold tracking-widest uppercase mt-1">Final Score</div>
         </div>
 
-        {/* --- PASEK POŚCIGU (Tylko jak przegrasz) --- */}
+        {/* --- PROGRESS BAR --- */}
         {!isNewRecord && bestScore > 0 && (
           <div className="mb-6 bg-black/40 rounded-xl p-3 border border-white/5 relative z-10 mx-2">
              <div className="flex justify-between text-[10px] text-gray-400 mb-1 uppercase tracking-wider font-bold">
@@ -303,14 +308,15 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
               transition: 'opacity 0.5s ease-in'
             }}
           >
-            {!hasMiniKit || !isMiniKitReadyFlag ? (
-              <div className="text-yellow-300 text-center py-4 text-[11px]">
-                Ładowanie MiniKit... Poczekaj chwilę lub odśwież appkę w Base App.
-              </div>
-            ) : !isMiniKitAuthenticated || !hasMiniKitWallet ? (
-              <div className="text-yellow-300 text-center py-4 text-[11px]">
-                Podłącz wallet w Base App (jeśli nie jest).
-              </div>
+            {/* 🔥 NOWE: Logika UI dla Loadera MiniKit */}
+            {isMiniKitLoading && !isMiniKitReady ? (
+               <div className="text-yellow-300 text-center py-4 text-[11px] animate-pulse border border-yellow-500/20 rounded-xl bg-yellow-500/5">
+                 ⏳ Ładowanie portfela Base App...
+               </div>
+            ) : !isMiniKitReady ? (
+               <div className="text-red-400 text-center py-4 text-[11px] border border-red-500/20 rounded-xl bg-red-500/5">
+                 ⚠️ Otwórz w Base App aby odebrać nagrody.
+               </div>
             ) : (
             <>
             {/* Hello World Badge (FREE) */}
@@ -389,14 +395,14 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
           </div>
         )}
 
-        {/* --- PRZYCISKI Z OCHRONĄ PRZED RAGE-CLICK --- */}
+        {/* --- ACTIONS --- */}
         <div 
             className="space-y-3 relative z-10"
             style={{
-                opacity: canInteract ? 1 : 0,           // Niewidoczne -> Widoczne
-                pointerEvents: canInteract ? 'auto' : 'none', // Klikalne -> Nieklikalne
-                filter: canInteract ? 'none' : 'grayscale(100%)', // Opcjonalnie: Szare na start
-                transition: 'opacity 0.5s ease-in, filter 0.5s ease-in' // Płynne wejście
+                opacity: canInteract ? 1 : 0,
+                pointerEvents: canInteract ? 'auto' : 'none',
+                filter: canInteract ? 'none' : 'grayscale(100%)',
+                transition: 'opacity 0.5s ease-in, filter 0.5s ease-in'
             }}
         >
           <button
@@ -426,7 +432,6 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
           </div>
         </div>
 
-        {/* Tip */}
         <motion.p
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
