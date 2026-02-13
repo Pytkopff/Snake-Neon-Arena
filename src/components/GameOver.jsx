@@ -4,7 +4,6 @@ import { useAccount, useSwitchChain, usePublicClient } from 'wagmi';
 import { ethers } from 'ethers';
 import { getAddress, parseEther } from 'viem';
 import sdk from '@farcaster/frame-sdk';
-import { useMiniKit } from '@farcaster/minikit';
 
 // 🏆 Badge mint constants
 const RAW_CONTRACT_ADDRESS = "0x720579D73BD6f9b16A4749D9D401f31ed9a418D7";
@@ -30,8 +29,8 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
   const { address, chainId } = useAccount();
   const { switchChainAsync } = useSwitchChain();
   const publicClient = usePublicClient();
-  const miniKit = useMiniKit();
-  const isMiniKitReady = !!miniKit?.wallet && miniKit?.isReady !== false;
+  const miniKit = typeof globalThis !== 'undefined' ? globalThis.miniKit : null;
+  const isMiniKitReady = !!miniKit?.wallet;
 
   // Sprawdź balans walleta (potrzebne dla paid mint)
   useEffect(() => {

@@ -5,7 +5,6 @@ import { ethers } from "ethers";
 import { getAddress, parseEther } from 'viem'; 
 import { SKINS, MISSIONS } from '../utils/constants';
 import sdk from '@farcaster/frame-sdk'; // Dodajemy SDK żeby otwierać linki
-import { useMiniKit } from '@farcaster/minikit';
 
 const RAW_CONTRACT_ADDRESS = "0x720579D73BD6f9b16A4749D9D401f31ed9a418D7";
 const BASE_CHAIN_ID = 8453;
@@ -35,8 +34,8 @@ const SkinMissionsPanel = ({
   const { address, chainId } = useAccount(); 
   const { switchChainAsync } = useSwitchChain();
   const publicClient = usePublicClient();
-  const miniKit = useMiniKit();
-  const isMiniKitReady = !!miniKit?.wallet && miniKit?.isReady !== false;
+  const miniKit = typeof globalThis !== 'undefined' ? globalThis.miniKit : null;
+  const isMiniKitReady = !!miniKit?.wallet;
 
   const openExternalUrl = (url) => {
     if (sdk?.actions?.openUrl) {
