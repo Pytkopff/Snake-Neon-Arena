@@ -6,7 +6,11 @@ import { ethers } from "ethers";
 import { getAddress, parseEther } from 'viem'; 
 import { SKINS, MISSIONS } from '../utils/constants';
 import sdk from '@farcaster/frame-sdk'; 
+import { useOnchainKit } from '@coinbase/onchainkit';
 
+// ... reszta zmiennych ...
+
+const onchainKit = useOnchainKit();
 const RAW_CONTRACT_ADDRESS = "0x720579D73BD6f9b16A4749D9D401f31ed9a418D7";
 const BASE_CHAIN_ID = 8453;
 const NATIVE_TOKEN = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
@@ -116,13 +120,23 @@ console.log("Full data z suffixem:", fullData.substring(0, 66) + "..." + fullDat
 console.log("Suffix używany:", ATTRIBUTION_SUFFIX);
 
 console.log("Wysyłanie tx...");
-const hash = await walletClient.sendTransaction({
+// 🔥 Nowa wersja z OnchainKit + dataSuffix (ERC-8021)
+const onchainKit = useOnchainKit(); // ← dodaj ten hook na górze funkcji jeśli go nie ma
+
+const hash = await onchainKit.wallet.sendTransaction({
   to: cleanContractAddress,
-  data: fullData,
-  value: pricePerToken,
-  chain: null
+  data: txData, // zwykła calldata bez suffixu
+  value: pricePerToken || price,
+}, {
+  capabilities: {
+    dataSuffix: {
+      value: '0x626f696b356e7771080080218021802180218021802180218021', // Twój suffix
+      optional: true
+    }
+  }
 });
-console.log("Hash:", hash);
+
+console.log("Hash z OnchainKit:", hash);
 
     if (publicClient && hash) {
       await publicClient.waitForTransactionReceipt({ hash });
