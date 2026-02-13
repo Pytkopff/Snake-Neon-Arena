@@ -1,9 +1,9 @@
 import { motion } from 'framer-motion';
 import { useState, useEffect } from 'react';
-import { useAccount, useSwitchChain, usePublicClient } from 'wagmi';
+// 🔥 ZMIANA: Dodano useWalletClient, usunięto zbędne
+import { useAccount, useSwitchChain, usePublicClient, useWalletClient } from 'wagmi';
 import { ethers } from 'ethers';
 import { getAddress, parseEther } from 'viem';
-// sdk import nie jest konieczny jeśli używasz globalThis.miniKit, ale nie przeszkadza
 
 // 🏆 Badge mint constants
 const RAW_CONTRACT_ADDRESS = "0x720579D73BD6f9b16A4749D9D401f31ed9a418D7";
@@ -15,25 +15,24 @@ const iface = new ethers.utils.Interface([
 const NATIVE_TOKEN = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
 const MAX_UINT256 = "115792089237316195423570985008687907853269984665640564039457584007913129639935";
 
+// 🔥 NOWE: Attribution Suffix dla Base (ERC-8021)
+const ATTRIBUTION_SUFFIX = '0x07626f696b356e77710080218021802180218021802180218021';
+
 const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare, onBackToMenu, endReason, applesCollected }) => {
   const [displayScore, setDisplayScore] = useState(0);
-  
-  // 🔥 FIX 1: Stan blokady przycisków (Anti-Rage Click)
   const [canInteract, setCanInteract] = useState(false);
 
-  // 🏆 Badge mint state
+  // Mint state
   const [mintingId, setMintingId] = useState(null);
   const [mintResults, setMintResults] = useState({}); 
   const [walletBalance, setWalletBalance] = useState(0n);
   const [balanceLoaded, setBalanceLoaded] = useState(false);
 
-  // 🔥 NOWE: Stan dla MiniKit (zastępuje stałą z początku pliku)
-  const [isMiniKitReady, setIsMiniKitReady] = useState(false);
-  const [isMiniKitLoading, setIsMiniKitLoading] = useState(true);
-
+  // Wagmi hooks
   const { address, chainId } = useAccount();
   const { switchChainAsync } = useSwitchChain();
   const publicClient = usePublicClient();
+  const { data: walletClient } = useWalletClient(); // 🔥 Klucz do wysyłania tx
 
   // Sprawdź balans walleta
   useEffect(() => {
@@ -49,55 +48,12 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
     return () => { isMounted = false; };
   }, [publicClient, address, chainId]);
 
-  // 🔥 NOWE: Polling i sprawdzanie MiniKit co sekundę
-  useEffect(() => {
-    // Jeśli już gotowy, nie sprawdzaj dalej
-    if (isMiniKitReady) return;
-
-    const checkMiniKit = () => {
-      const mk = globalThis.miniKit;
-      // Sprawdzamy czy obiekt istnieje i czy ma flagę isReady (lub czy wallet jest dostępny)
-      const ready = !!mk && !!mk.wallet; // Uproszczony warunek: jeśli jest wallet, to jest gotowy
-      
-      console.log('🔍 MiniKit Polling:', { 
-        found: !!mk, 
-        wallet: !!mk?.wallet, 
-        readyFlag: mk?.isReady 
-      });
-
-      if (ready) {
-        setIsMiniKitReady(true);
-        setIsMiniKitLoading(false);
-      }
-    };
-
-    // Sprawdź natychmiast
-    checkMiniKit();
-
-    // Sprawdzaj co 1s
-    const interval = setInterval(checkMiniKit, 1000);
-
-    // Timeout po 10s - przestań pokazywać loader, pokaż błąd/fallback
-    const timeout = setTimeout(() => {
-      setIsMiniKitLoading(false);
-      // Jeśli po 10s nadal nie ma, zostanie isMiniKitReady = false
-    }, 10000);
-
-    return () => {
-      clearInterval(interval);
-      clearTimeout(timeout);
-    };
-  }, [isMiniKitReady]);
-
-
   const handleMintBadge = async (tokenId) => {
     if (!address) return;
     
-    // Pobieramy instancję bezpośrednio z globalThis w momencie kliknięcia (najbezpieczniej)
-    const miniKit = globalThis.miniKit;
-
-    if (!miniKit || !miniKit.wallet) {
-      alert("MiniKit not ready. Try refreshing via Base App menu.");
+    // 🔥 Fallback: Jeśli wallet nie jest gotowy (np. zwykła przeglądarka bez portfela)
+    if (!walletClient) {
+      alert("Please open this app in Base App or connect a wallet.");
       return;
     }
 
@@ -108,12 +64,11 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
     setMintResults(prev => ({ ...prev, [tokenId]: null }));
     
     try {
-      // Opcjonalne: switch chain (MiniKit zazwyczaj sam to ogarnia, ale zostawiamy dla wagmi)
       if (chainId !== BASE_CHAIN_ID) {
         try {
           await switchChainAsync({ chainId: BASE_CHAIN_ID });
         } catch {
-          // Ignorujemy błąd switcha tutaj, licząc że sendCalls sobie poradzi
+           console.warn("Switch chain skipped/failed");
         }
       }
 
@@ -126,45 +81,28 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
         currency: cleanCurrency
       };
 
+      // 1. Encode standard calldata
       const txData = iface.encodeFunctionData("claim", [
         address, tokenId, 1, cleanCurrency, price, allowlistProof, "0x"
       ]);
 
-      const valueHex = `0x${price.toString(16)}`;
+      // 2. 🔥 DOKLEJANIE SUFFIXU (Hack na attribution bez SDK)
+      // Usuwamy '0x' z suffixu i doklejamy do txData
+      const fullData = txData + ATTRIBUTION_SUFFIX.slice(2);
 
-      // 🔥 FIX 3: Poprawione wywołanie sendCalls z Twoim dataSuffix
-      const result = await miniKit.wallet.sendCalls({
-        calls: [
-          {
-            to: cleanContractAddress,
-            data: txData,
-            value: valueHex,
-          },
-        ],
-        capabilities: {
-          paymasterService: {
-             // Jeśli masz URL paymastera, wpisz go tutaj, jeśli nie - usuń ten obiekt
-             // url: "..." 
-          }
-        },
-        // Wg najnowszej dokumentacji dla Smart Wallet / attribution:
-        dataSuffix: '0x07626f696b356e77710080218021802180218021802180218021'
+      console.log("📝 Sending Tx with Suffix...", { fullData });
+
+      // 3. Wysyłamy przez standardowy walletClient (wagmi)
+      // Base App (Smart Wallet) zobaczy suffix w data i powinien zaliczyć attribution
+      const hash = await walletClient.sendTransaction({
+        to: cleanContractAddress,
+        data: fullData, 
+        value: price,
+        chain: null 
       });
 
-      console.log("MiniKit Result:", result);
+      console.log("✅ Tx Hash:", hash);
 
-      // Obsługa różnych formatów odpowiedzi (Smart Wallet vs EOA)
-      let hash = null;
-      if (typeof result === 'string') {
-        hash = result;
-      } else if (result?.transactions?.[0]?.hash) {
-        // Struktura z dokumentacji MiniKit
-        hash = result.transactions[0].hash;
-      } else if (Array.isArray(result) && result[0]?.hash) {
-        hash = result[0].hash;
-      }
-
-      // Jeśli mamy hash i publicClient, czekamy na potwierdzenie
       if (publicClient && hash) {
         const receipt = await publicClient.waitForTransactionReceipt({ hash });
         if (receipt.status !== 'success') throw new Error("Transaction failed on-chain");
@@ -172,9 +110,8 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
 
       setMintResults(prev => ({ ...prev, [tokenId]: 'success' }));
     } catch (err) {
-      console.error("❌ Badge Mint Error (MiniKit):", err);
-      // Nie pokazuj błędu jeśli użytkownik anulował
-      if (!err.message?.includes("User rejected") && !err.message?.includes("rejected")) {
+      console.error("❌ Badge Mint Error:", err);
+      if (!err.message?.includes("User rejected")) {
         setMintResults(prev => ({ ...prev, [tokenId]: 'error' }));
         alert("Mint failed: " + (err.message || "Unknown error"));
       }
@@ -183,7 +120,7 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
     }
   };
 
-  // 1. Ticker Score
+  // Ticker Score
   useEffect(() => {
     let start = 0;
     const duration = 1500; 
@@ -203,7 +140,7 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
     return () => clearInterval(timer);
   }, [score]);
 
-  // 2. Timer Anti-Rage
+  // Timer Anti-Rage
   useEffect(() => {
     setCanInteract(false);
     const timer = setTimeout(() => {
@@ -308,13 +245,9 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
               transition: 'opacity 0.5s ease-in'
             }}
           >
-            {/* 🔥 NOWE: Logika UI dla Loadera MiniKit */}
-            {isMiniKitLoading && !isMiniKitReady ? (
-               <div className="text-yellow-300 text-center py-4 text-[11px] animate-pulse border border-yellow-500/20 rounded-xl bg-yellow-500/5">
-                 ⏳ Ładowanie portfela Base App...
-               </div>
-            ) : !isMiniKitReady ? (
-               <div className="text-red-400 text-center py-4 text-[11px] border border-red-500/20 rounded-xl bg-red-500/5">
+            {/* 🔥 NOWE: Sprawdzenie walletClient zamiast MiniKit */}
+            {!walletClient ? (
+               <div className="text-yellow-300 text-center py-4 text-[11px] border border-yellow-500/20 rounded-xl bg-yellow-500/5">
                  ⚠️ Otwórz w Base App aby odebrać nagrody.
                </div>
             ) : (

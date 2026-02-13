@@ -21,12 +21,6 @@ import { QueryClientProvider, QueryClient } from "@tanstack/react-query";
 import { ThirdwebProvider } from "@thirdweb-dev/react";
 import { Base } from "@thirdweb-dev/chains"; 
 
-// --- VCONSOLE ---
-import VConsole from 'vconsole';
-
-// Inicjalizacja vConsole
-const vConsole = new VConsole();
-
 const APP_NAME = 'Snake Neo Arena';
 const APP_ORIGIN = globalThis?.location?.origin || 'https://snake-neon-arena.vercel.app';
 const APP_LOGO_URL = `${APP_ORIGIN}/logo.png`;
@@ -59,17 +53,16 @@ const thirdwebOptions = {
 };
 
 ReactDOM.createRoot(document.getElementById('root')).render(
-  // 🔥 USUNIĘTO <MiniKitProvider> BO ONA NIE ISTNIEJE
-    <ThirdwebProvider 
-      activeChain={Base} 
-      sdkOptions={thirdwebOptions}
-    >
-      <WagmiProvider config={config}>
-        <QueryClientProvider client={queryClient}>
-          <RainbowKitProvider theme={darkTheme()} coolMode>
-            <App />
-          </RainbowKitProvider>
-        </QueryClientProvider>
-      </WagmiProvider>
-    </ThirdwebProvider>
+  <ThirdwebProvider 
+    activeChain={Base} 
+    sdkOptions={thirdwebOptions}
+  >
+    <WagmiProvider config={config}>
+      <QueryClientProvider client={queryClient}>
+        <RainbowKitProvider theme={darkTheme()} coolMode>
+          <App />
+        </RainbowKitProvider>
+      </QueryClientProvider>
+    </WagmiProvider>
+  </ThirdwebProvider>
 );

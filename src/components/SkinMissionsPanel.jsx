@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useAccount, useSwitchChain, usePublicClient } from 'wagmi';
+// 🔥 ZMIANA: Dodano useWalletClient, usunięto MiniKit
+import { useAccount, useSwitchChain, usePublicClient, useWalletClient } from 'wagmi';
 import { ethers } from "ethers"; 
 import { getAddress, parseEther } from 'viem'; 
 import { SKINS, MISSIONS } from '../utils/constants';
@@ -8,13 +9,16 @@ import sdk from '@farcaster/frame-sdk';
 
 const RAW_CONTRACT_ADDRESS = "0x720579D73BD6f9b16A4749D9D401f31ed9a418D7";
 const BASE_CHAIN_ID = 8453;
+const NATIVE_TOKEN = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
+const PAID_MINT_PRICE = parseEther("0.00034");
+const MAX_UINT256 = "115792089237316195423570985008687907853269984665640564039457584007913129639935";
+
+// 🔥 NOWE: Attribution Suffix dla Base (ERC-8021)
+const ATTRIBUTION_SUFFIX = '0x07626f696b356e77710080218021802180218021802180218021';
 
 const iface = new ethers.utils.Interface([
   "function claim(address receiver, uint256 tokenId, uint256 quantity, address currency, uint256 pricePerToken, tuple(bytes32[] proof, uint256 quantityLimitPerWallet, uint256 pricePerToken, address currency) allowlistProof, bytes data)"
 ]);
-const NATIVE_TOKEN = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
-const PAID_MINT_PRICE = parseEther("0.00034");
-const MAX_UINT256 = "115792089237316195423570985008687907853269984665640564039457584007913129639935";
 
 const SkinMissionsPanel = ({ 
   unlockedSkins, 
@@ -27,18 +31,13 @@ const SkinMissionsPanel = ({
   const [isMinting, setIsMinting] = useState(false);
   const [walletBalance, setWalletBalance] = useState(0n);
   const [balanceLoaded, setBalanceLoaded] = useState(false);
-  
-  // Stan sukcesu z Twojego kodu
   const [mintSuccess, setMintSuccess] = useState(null); 
-  const [miniKitInitAlertShown, setMiniKitInitAlertShown] = useState(false);
-
-  // 🔥 NOWE: Stan lokalny dla MiniKit (naprawa problemu z ładowaniem)
-  const [isMiniKitReady, setIsMiniKitReady] = useState(false);
-  const [isMiniKitLoading, setIsMiniKitLoading] = useState(true);
-
+  
+  // Wagmi hooks
   const { address, chainId } = useAccount(); 
   const { switchChainAsync } = useSwitchChain();
   const publicClient = usePublicClient();
+  const { data: walletClient } = useWalletClient(); // 🔥 Klucz do wysyłania tx
 
   const openExternalUrl = (url) => {
     if (sdk?.actions?.openUrl) {
@@ -53,77 +52,26 @@ const SkinMissionsPanel = ({
     let isMounted = true;
     const loadBalance = async () => {
       if (!publicClient || !address) {
-        if (isMounted) {
-          setWalletBalance(0n);
-          setBalanceLoaded(false);
-        }
+        if (isMounted) { setWalletBalance(0n); setBalanceLoaded(false); }
         return;
       }
       try {
         const balance = await publicClient.getBalance({ address });
-        if (isMounted) {
-          setWalletBalance(balance);
-          setBalanceLoaded(true);
-        }
+        if (isMounted) { setWalletBalance(balance); setBalanceLoaded(true); }
       } catch (err) {
-        if (isMounted) {
-          setWalletBalance(0n);
-          setBalanceLoaded(false);
-        }
+        if (isMounted) { setWalletBalance(0n); setBalanceLoaded(false); }
       }
     };
     loadBalance();
     return () => { isMounted = false; };
   }, [publicClient, address, chainId]);
 
-  // 🔥 NOWE: Poprawny Polling MiniKit
-  useEffect(() => {
-    // Jeśli już jest gotowy, nie sprawdzaj dalej
-    if (isMiniKitReady) return;
-
-    const checkMiniKit = () => {
-      const mk = globalThis.miniKit;
-      
-      console.log('🔍 MiniKit Polling (SkinPanel):', { 
-        found: !!mk, 
-        wallet: !!mk?.wallet, 
-        readyFlag: mk?.isReady 
-      });
-
-      // Warunek sukcesu: obiekt istnieje i ma wallet
-      if (mk && mk.wallet) {
-        setIsMiniKitReady(true);
-        setIsMiniKitLoading(false);
-      }
-    };
-
-    // Sprawdź natychmiast
-    checkMiniKit();
-
-    // Sprawdzaj co 1 sekundę
-    const interval = setInterval(checkMiniKit, 1000);
-
-    // Timeout po 10 sekundach (przestań kręcić loaderem)
-    const timeout = setTimeout(() => {
-      setIsMiniKitLoading(false);
-      // Jeśli po 10s nadal nie ma, zostanie loading=false i ready=false -> pokaże się komunikat "Otwórz w Base App"
-    }, 10000);
-
-    return () => {
-      clearInterval(interval);
-      clearTimeout(timeout);
-    };
-  }, [isMiniKitReady]);
-
   const handleMint = async (tokenId) => {
     if (!address) return;
     
-    // 🔥 FIX: Pobieramy instancję MiniKita w momencie kliknięcia
-    const miniKit = globalThis.miniKit;
-
-    // Walidacja oparta na stanie lub bezpośrednim sprawdzeniu obiektu
-    if (!miniKit || !miniKit.wallet) {
-      alert("MiniKit not ready. Please refresh inside Base App.");
+    // 🔥 Fallback: Sprawdzamy czy wallet jest gotowy
+    if (!walletClient) {
+      alert("Please open this app in Base App or connect a wallet.");
       return;
     }
 
@@ -131,25 +79,14 @@ const SkinMissionsPanel = ({
 
     try {
       if (chainId !== BASE_CHAIN_ID) {
-          try {
-              await switchChainAsync({ chainId: BASE_CHAIN_ID });
-          } catch (e) {
-              console.warn("Chain switch skipped/failed", e);
-          }
+          try { await switchChainAsync({ chainId: BASE_CHAIN_ID }); } catch (e) { console.warn(e); }
       }
 
-      console.log("🛠️ Mint start...");
+      console.log("🛠️ Mint start (Wagmi + Suffix)...");
       const cleanContractAddress = getAddress(RAW_CONTRACT_ADDRESS.trim());
       const cleanCurrency = getAddress(NATIVE_TOKEN);
 
-      let pricePerToken = 0n;
-      let valueToSend = 0n;
-
-      if (tokenId === 2) {
-          pricePerToken = PAID_MINT_PRICE; 
-          valueToSend = pricePerToken;
-      }
-
+      let pricePerToken = tokenId === 2 ? PAID_MINT_PRICE : 0n;
       const allowlistProof = {
         proof: [],
         quantityLimitPerWallet: MAX_UINT256,
@@ -157,57 +94,34 @@ const SkinMissionsPanel = ({
         currency: cleanCurrency
       };
 
+      // 1. Encode standard calldata
       const txData = iface.encodeFunctionData("claim", [
         address, tokenId, 1, cleanCurrency, pricePerToken, allowlistProof, "0x"
       ]);
 
-      const valueHex = `0x${valueToSend.toString(16)}`;
+      // 2. 🔥 DOKLEJAMY SUFFIX (Hack na attribution)
+      const fullData = txData + ATTRIBUTION_SUFFIX.slice(2);
 
-      // Wywołanie transakcji
-      const result = await miniKit.wallet.sendCalls({
-        calls: [
-          {
-            to: cleanContractAddress,
-            data: txData,
-            value: valueHex,
-          },
-        ],
-        capabilities: {
-          dataSuffix: {
-            value: '0x07626f696b356e77710080218021802180218021802180218021',
-            optional: true,
-          },
-        },
+      // 3. Wysyłamy przez standardowy walletClient
+      const hash = await walletClient.sendTransaction({
+        to: cleanContractAddress,
+        data: fullData, // Zmodyfikowane dane z suffixem
+        value: pricePerToken,
+        chain: null
       });
-
-      let hash = null;
-      if (typeof result === 'string') {
-        hash = result;
-      } else if (Array.isArray(result) && result[0]?.hash) {
-        hash = result[0].hash;
-      } else if (result?.hash) {
-        hash = result.hash;
-      } else if (result?.transactions?.[0]?.hash) {
-        hash = result.transactions[0].hash;
-      }
 
       console.log("✅ Hash:", hash);
 
-      if (!publicClient) throw new Error("Public client not available");
-
-      if (hash) {
-        const receipt = await publicClient.waitForTransactionReceipt({ hash });
-        if (receipt.status !== 'success') {
-          throw new Error("Transaction failed");
-        }
+      if (publicClient && hash) {
+        await publicClient.waitForTransactionReceipt({ hash });
       }
 
       setMintSuccess(hash || "confirmed");
 
     } catch (err) {
-      console.error("❌ Mint Error (MiniKit):", err);
+      console.error("❌ Mint Error:", err);
       if (!err.message?.includes("User rejected")) {
-         alert("Mint failed. Check console.");
+         alert("Mint failed: " + (err.message || "Unknown error"));
       }
     } finally {
       setIsMinting(false);
@@ -216,6 +130,9 @@ const SkinMissionsPanel = ({
 
   const getProgress = (mission) => {
     let current = 0;
+    // Zabezpieczenie przed brakiem statystyk
+    if (!playerStats) return { current: 0, percent: 0 };
+
     if (mission.type === 'games') current = playerStats.totalGames;
     else if (mission.type === 'apples') current = playerStats.totalApples;
     else if (mission.type === 'score') {
@@ -237,7 +154,7 @@ const SkinMissionsPanel = ({
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-black/80 backdrop-blur-xl rounded-xl border border-white/10 overflow-hidden relative shadow-2xl">
       
-      {/* 🔥 MODAL SUKCESU (ZACHOWANY) 🔥 */}
+      {/* MODAL SUKCESU */}
       <AnimatePresence>
         {mintSuccess && (
           <motion.div 
@@ -249,10 +166,8 @@ const SkinMissionsPanel = ({
              <div className="w-20 h-20 bg-green-500/20 rounded-full flex items-center justify-center mb-4 border border-green-500 shadow-[0_0_30px_#22c55e]">
                 <div className="text-4xl">🎉</div>
              </div>
-             
              <h2 className="text-2xl font-black text-white mb-2 tracking-wider">MINT SUCCESS!</h2>
              <p className="text-gray-400 text-sm mb-6">Your transaction is on its way to the blockchain.</p>
-             
              <div className="flex flex-col gap-3 w-full">
                {mintSuccess !== "confirmed" && (
                  <button 
@@ -262,13 +177,7 @@ const SkinMissionsPanel = ({
                    🔍 View on BaseScan
                  </button>
                )}
-               
-               <button 
-                 onClick={() => { setMintSuccess(null); onClose(); }}
-                 className="w-full py-3 rounded-xl bg-green-500 text-black font-black tracking-widest hover:scale-105 transition-all shadow-[0_0_20px_rgba(34,197,94,0.4)]"
-               >
-                 AWESOME!
-               </button>
+               <button onClick={() => { setMintSuccess(null); onClose(); }} className="w-full py-3 rounded-xl bg-green-500 text-black font-black tracking-widest hover:scale-105 transition-all">AWESOME!</button>
              </div>
           </motion.div>
         )}
@@ -352,17 +261,13 @@ const SkinMissionsPanel = ({
                               <span className="text-[10px] text-gray-300 font-bold">{rewardSkin.name}</span>
                            </div>
                          )}
-                         {/* 🔥 NAPRAWIONA SEKCJA MINT Z LOADEREM 🔥 */}
+                         {/* 🔥 NAPRAWIONA SEKCJA MINT (Wagmi) 🔥 */}
                          {isNftMission && (
                              isCompleted ? (
                                <>
-                                 {isMiniKitLoading && !isMiniKitReady ? (
-                                   <div className="flex items-center gap-1 bg-yellow-500/10 px-2 py-1 rounded border border-yellow-500/30 text-[10px] text-yellow-200 animate-pulse">
-                                     ⏳ Ładowanie...
-                                   </div>
-                                 ) : !isMiniKitReady ? (
+                                 {!walletClient ? (
                                    <div className="flex items-center gap-1 bg-red-500/10 px-2 py-1 rounded border border-red-500/30 text-[10px] text-red-200">
-                                     ⚠️ Otwórz w Base App
+                                     ⚠️ Portfel niegotowy
                                    </div>
                                  ) : (
                                  <>
