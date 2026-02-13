@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion';
 import { useState, useEffect } from 'react';
+// 🔥 ZMIANA: Dodano useWalletClient, usunięto zbędne
 import { useAccount, useSwitchChain, usePublicClient, useWalletClient } from 'wagmi';
 import { ethers } from 'ethers';
 import { getAddress, parseEther } from 'viem';
@@ -14,8 +15,8 @@ const iface = new ethers.utils.Interface([
 const NATIVE_TOKEN = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
 const MAX_UINT256 = "115792089237316195423570985008687907853269984665640564039457584007913129639935";
 
-// 🔥 Attribution Suffix dla Base (ERC-8021) – ręczny
-const ATTRIBUTION_SUFFIX = '0x626f696b356e7771080080218021802180218021802180218021';
+// 🔥 NOWE: Attribution Suffix dla Base (ERC-8021)
+const ATTRIBUTION_SUFFIX = '0x07626f696b356e77710080218021802180218021802180218021';
 
 const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare, onBackToMenu, endReason, applesCollected }) => {
   const [displayScore, setDisplayScore] = useState(0);
@@ -31,7 +32,7 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
   const { address, chainId } = useAccount();
   const { switchChainAsync } = useSwitchChain();
   const publicClient = usePublicClient();
-  const { data: walletClient } = useWalletClient();
+  const { data: walletClient } = useWalletClient(); // 🔥 Klucz do wysyłania tx
 
   // Sprawdź balans walleta
   useEffect(() => {
@@ -49,7 +50,8 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
 
   const handleMintBadge = async (tokenId) => {
     if (!address) return;
-
+    
+    // 🔥 Fallback: Jeśli wallet nie jest gotowy (np. zwykła przeglądarka bez portfela)
     if (!walletClient) {
       alert("Please open this app in Base App or connect a wallet.");
       return;
@@ -60,7 +62,7 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
 
     setMintingId(tokenId);
     setMintResults(prev => ({ ...prev, [tokenId]: null }));
-
+    
     try {
       if (chainId !== BASE_CHAIN_ID) {
         try {
@@ -79,15 +81,19 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
         currency: cleanCurrency
       };
 
+      // 1. Encode standard calldata
       const txData = iface.encodeFunctionData("claim", [
         address, tokenId, 1, cleanCurrency, price, allowlistProof, "0x"
       ]);
 
-      // 🔥 Ręczny suffix – to działało w logach
+      // 2. 🔥 DOKLEJANIE SUFFIXU (Hack na attribution bez SDK)
+      // Usuwamy '0x' z suffixu i doklejamy do txData
       const fullData = txData + ATTRIBUTION_SUFFIX.slice(2);
 
-      console.log("Full data z suffixem:", fullData); // ← log do sprawdzenia
+      console.log("📝 Sending Tx with Suffix...", { fullData });
 
+      // 3. Wysyłamy przez standardowy walletClient (wagmi)
+      // Base App (Smart Wallet) zobaczy suffix w data i powinien zaliczyć attribution
       const hash = await walletClient.sendTransaction({
         to: cleanContractAddress,
         data: fullData, 
@@ -141,7 +147,7 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
       setCanInteract(true);
     }, 1500);
     return () => clearTimeout(timer);
-  }, [score]);
+    }, [score]);
   
   const progressToBest = bestScore > 0 ? Math.min(100, (score / bestScore) * 100) : 100;
   const missingPoints = bestScore - score;
@@ -230,7 +236,7 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
           </div>
         </div>
 
-        {/* --- BADGE MINT SECTION --- */}
+        {/* --- 🏆 BADGE MINT SECTION --- */}
         {address && (
           <div 
             className="space-y-2 mb-4 relative z-10"
@@ -239,6 +245,7 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
               transition: 'opacity 0.5s ease-in'
             }}
           >
+            {/* 🔥 NOWE: Sprawdzenie walletClient zamiast MiniKit */}
             {!walletClient ? (
                <div className="text-yellow-300 text-center py-4 text-[11px] border border-yellow-500/20 rounded-xl bg-yellow-500/5">
                  ⚠️ Otwórz w Base App aby odebrać nagrody.
