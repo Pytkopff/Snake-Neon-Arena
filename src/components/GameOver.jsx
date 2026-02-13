@@ -26,11 +26,16 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
   const [mintResults, setMintResults] = useState({}); // { 0: 'success', 2: 'error' }
   const [walletBalance, setWalletBalance] = useState(0n);
   const [balanceLoaded, setBalanceLoaded] = useState(false);
+  const [miniKitInitAlertShown, setMiniKitInitAlertShown] = useState(false);
   const { address, chainId } = useAccount();
   const { switchChainAsync } = useSwitchChain();
   const publicClient = usePublicClient();
   const miniKit = typeof globalThis !== 'undefined' ? globalThis.miniKit : null;
-  const isMiniKitReady = !!miniKit?.wallet;
+  const hasMiniKit = !!miniKit;
+  const isMiniKitReadyFlag = !!miniKit && miniKit.isReady !== false;
+  const isMiniKitAuthenticated = miniKit?.isAuthenticated !== false;
+  const hasMiniKitWallet = !!miniKit?.wallet;
+  const isMiniKitReady = hasMiniKit && isMiniKitReadyFlag && hasMiniKitWallet && isMiniKitAuthenticated;
 
   // Sprawdź balans walleta (potrzebne dla paid mint)
   useEffect(() => {
@@ -46,16 +51,44 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
     return () => { isMounted = false; };
   }, [publicClient, address, chainId]);
 
+  // Delikatny polling MiniKit + timeout 10s
+  useEffect(() => {
+    let cancelled = false;
+    const start = Date.now();
+
+    const logStatus = () => {
+      if (cancelled) return;
+      console.log('MiniKit check:', {
+        isReady: miniKit?.isReady,
+        wallet: !!miniKit?.wallet,
+        authenticated: miniKit?.isAuthenticated,
+      });
+
+      const elapsed = Date.now() - start;
+      if (
+        !miniKitInitAlertShown &&
+        elapsed >= 10000 &&
+        (!miniKit || miniKit.isReady === false)
+      ) {
+        alert('MiniKit nie mógł się zainicjować. Odśwież Base App lub spróbuj ponownie.');
+        setMiniKitInitAlertShown(true);
+      }
+    };
+
+    // Log od razu i potem co 2 sekundy
+    logStatus();
+    const intervalId = setInterval(logStatus, 2000);
+
+    return () => {
+      cancelled = true;
+      clearInterval(intervalId);
+    };
+  }, [miniKit, miniKitInitAlertShown]);
+
   const handleMintBadge = async (tokenId) => {
     if (!address) return;
-
-    if (!miniKit || !miniKit.wallet) {
-      alert("Open this app in Base App to mint badges.");
-      return;
-    }
-
-    if (miniKit.isReady === false) {
-      alert("MiniKit wallet is not ready yet. Please try again in a moment.");
+    // Jeśli MiniKit nie jest gotowy / wallet niepodłączony – UI pokaże komunikat.
+    if (!hasMiniKit || !isMiniKitReadyFlag || !hasMiniKitWallet || !isMiniKitAuthenticated) {
       return;
     }
 
@@ -269,10 +302,13 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
               transition: 'opacity 0.5s ease-in'
             }}
           >
-            {!isMiniKitReady ? (
-              <div className="flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-yellow-500/10 border border-yellow-500/30 text-[11px] text-yellow-200">
-                {/* Fallback poza Base App / MiniKit */}
-                Open this app in Base App to mint badges.
+            {!hasMiniKit || !isMiniKitReadyFlag ? (
+              <div className="text-yellow-300 text-center py-4 text-[11px]">
+                Ładowanie MiniKit... Poczekaj chwilę lub odśwież appkę w Base App.
+              </div>
+            ) : !isMiniKitAuthenticated || !hasMiniKitWallet ? (
+              <div className="text-yellow-300 text-center py-4 text-[11px]">
+                Podłącz wallet w Base App (jeśli nie jest).
               </div>
             ) : (
             <>
