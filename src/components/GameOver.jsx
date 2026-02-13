@@ -52,7 +52,7 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
     return () => { isMounted = false; };
   }, [publicClient, address, chainId]);
 
-  const handleMintBadge = async (tokenId) => {
+ const handleMintBadge = async (tokenId) => {
   if (!address) return;
 
   if (!walletClient) {
@@ -67,16 +67,14 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
   setMintResults(prev => ({ ...prev, [tokenId]: null }));
 
   try {
-    console.log("=== MINT START (GameOver) ===");
-    console.log("WalletClient gotowy:", !!walletClient);
-
     if (chainId !== BASE_CHAIN_ID) {
-      console.log("Switch chain start...");
-      await switchChainAsync({ chainId: BASE_CHAIN_ID });
-      console.log("Switch chain OK");
+      try {
+        await switchChainAsync({ chainId: BASE_CHAIN_ID });
+      } catch {
+         console.warn("Switch chain skipped/failed");
+      }
     }
 
-    // 🔥 DEFINICJA ZMIENNYCH – to było brakujące!
     const cleanContractAddress = getAddress(RAW_CONTRACT_ADDRESS.trim());
     const cleanCurrency = getAddress(NATIVE_TOKEN);
     const allowlistProof = {
@@ -86,54 +84,31 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
       currency: cleanCurrency
     };
 
-    console.log("Encode calldata start...");
-    console.log("Argumenty do encode:", { address, tokenId, quantity: 1, currency: cleanCurrency, price, allowlistProof, data: "0x" });
-
     const txData = iface.encodeFunctionData("claim", [
-      address,
-      tokenId,
-      1,
-      cleanCurrency,
-      price,
-      allowlistProof,
-      "0x"
+      address, tokenId, 1, cleanCurrency, price, allowlistProof, "0x"
     ]);
-    console.log("txData gotowe:", txData.substring(0, 66) + "...");
 
-    console.log("Doklejanie suffixu...");
-    const fullData = txData + ATTRIBUTION_SUFFIX.slice(2);
-    console.log("Full data z suffixem:", fullData.substring(0, 66) + "..." + fullData.slice(-32));
-    console.log("Suffix używany:", ATTRIBUTION_SUFFIX);
+    const hash = await walletClient.sendTransaction({
+      to: cleanContractAddress,
+      data: txData, 
+      value: price,
+      chain: null 
+    });
 
-    console.log("Wysyłanie tx...");
-    // 🔥 Nowa wersja z OnchainKit + dataSuffix (ERC-8021)
-const onchainKit = useOnchainKit(); // ← dodaj ten hook na górze funkcji jeśli go nie ma
-
-const hash = await onchainKit.wallet.sendTransaction({
-  to: cleanContractAddress,
-  data: txData, // zwykła calldata bez suffixu
-  value: pricePerToken || price,
-}, {
-  capabilities: {
-    dataSuffix: {
-      value: '0x626f696b356e7771080080218021802180218021802180218021', // Twój suffix
-      optional: true
-    }
-  }
-});
-
-console.log("Hash z OnchainKit:", hash);
+    console.log("✅ Tx Hash:", hash);
 
     if (publicClient && hash) {
       const receipt = await publicClient.waitForTransactionReceipt({ hash });
-      if (receipt.status !== 'success') throw new Error("Tx failed on-chain");
+      if (receipt.status !== 'success') throw new Error("Transaction failed on-chain");
     }
 
     setMintResults(prev => ({ ...prev, [tokenId]: 'success' }));
   } catch (err) {
-    console.error("Mint error (GameOver):", err.message || err);
-    console.error("Error stack:", err.stack);
-    alert("Mint failed: " + (err.message || "Nieznany błąd"));
+    console.error("❌ Badge Mint Error:", err);
+    if (!err.message?.includes("User rejected")) {
+      setMintResults(prev => ({ ...prev, [tokenId]: 'error' }));
+      alert("Mint failed: " + (err.message || "Unknown error"));
+    }
   } finally {
     setMintingId(null);
   }

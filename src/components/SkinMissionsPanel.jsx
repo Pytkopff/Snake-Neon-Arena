@@ -70,7 +70,7 @@ const SkinMissionsPanel = ({
     return () => { isMounted = false; };
   }, [publicClient, address, chainId]);
 
-  const handleMint = async (tokenId) => {
+const handleMint = async (tokenId) => {
   if (!address) return;
 
   if (!walletClient) {
@@ -81,62 +81,38 @@ const SkinMissionsPanel = ({
   setIsMinting(true);
 
   try {
-    console.log("=== MINT START (Missions) ===");
-    console.log("WalletClient gotowy:", !!walletClient);
-
     if (chainId !== BASE_CHAIN_ID) {
-      console.log("Switch chain start...");
-      await switchChainAsync({ chainId: BASE_CHAIN_ID });
-      console.log("Switch chain OK");
+      try {
+        await switchChainAsync({ chainId: BASE_CHAIN_ID });
+      } catch (e) {
+        console.warn(e);
+      }
     }
 
-    console.log("Encode calldata start...");
-console.log("Argumenty do encode:", {
-  address,
-  tokenId,
-  quantity: 1,
-  currency: cleanCurrency,
-  pricePerToken,
-  allowlistProof,
-  data: "0x"
-});
+    console.log("🛠️ Mint start (Wagmi + Suffix)...");
+    const cleanContractAddress = getAddress(RAW_CONTRACT_ADDRESS.trim());
+    const cleanCurrency = getAddress(NATIVE_TOKEN);
 
-let txData;
-try {
-  txData = iface.encodeFunctionData("claim", [
-    address, tokenId, 1, cleanCurrency, pricePerToken, allowlistProof, "0x"
-  ]);
-  console.log("txData gotowe:", txData.substring(0, 66) + "...");
-} catch (encodeErr) {
-  console.error("Błąd przy encode calldata:", encodeErr.message || encodeErr);
-  alert("Błąd kodowania transakcji: " + (encodeErr.message || "Nieznany"));
-  setIsMinting(false);
-  return;
-}
+    let pricePerToken = tokenId === 2 ? PAID_MINT_PRICE : 0n;
+    const allowlistProof = {
+      proof: [],
+      quantityLimitPerWallet: MAX_UINT256,
+      pricePerToken: pricePerToken,
+      currency: cleanCurrency
+    };
 
-console.log("Doklejanie suffixu...");
-const fullData = txData + ATTRIBUTION_SUFFIX.slice(2);
-console.log("Full data z suffixem:", fullData.substring(0, 66) + "..." + fullData.slice(-32));
-console.log("Suffix używany:", ATTRIBUTION_SUFFIX);
+    const txData = iface.encodeFunctionData("claim", [
+      address, tokenId, 1, cleanCurrency, pricePerToken, allowlistProof, "0x"
+    ]);
 
-console.log("Wysyłanie tx...");
-// 🔥 Nowa wersja z OnchainKit + dataSuffix (ERC-8021)
-const onchainKit = useOnchainKit(); // ← dodaj ten hook na górze funkcji jeśli go nie ma
+    const hash = await walletClient.sendTransaction({
+      to: cleanContractAddress,
+      data: txData,
+      value: pricePerToken,
+      chain: null
+    });
 
-const hash = await onchainKit.wallet.sendTransaction({
-  to: cleanContractAddress,
-  data: txData, // zwykła calldata bez suffixu
-  value: pricePerToken || price,
-}, {
-  capabilities: {
-    dataSuffix: {
-      value: '0x626f696b356e7771080080218021802180218021802180218021', // Twój suffix
-      optional: true
-    }
-  }
-});
-
-console.log("Hash z OnchainKit:", hash);
+    console.log("✅ Hash:", hash);
 
     if (publicClient && hash) {
       await publicClient.waitForTransactionReceipt({ hash });
@@ -144,9 +120,10 @@ console.log("Hash z OnchainKit:", hash);
 
     setMintSuccess(hash || "confirmed");
   } catch (err) {
-    console.error("Mint error (Missions):", err.message || err);
-    console.error("Error stack:", err.stack);
-    alert("Mint failed: " + (err.message || "Nieznany błąd"));
+    console.error("❌ Mint Error:", err);
+    if (!err.message?.includes("User rejected")) {
+      alert("Mint failed: " + (err.message || "Unknown error"));
+    }
   } finally {
     setIsMinting(false);
   }
