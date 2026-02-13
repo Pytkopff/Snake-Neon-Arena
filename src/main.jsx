@@ -21,16 +21,11 @@ import { QueryClientProvider, QueryClient } from "@tanstack/react-query";
 import { ThirdwebProvider } from "@thirdweb-dev/react";
 import { Base } from "@thirdweb-dev/chains"; 
 
-// --- IMPORT MINIKIT (KLUCZOWE!) ---
-import { MiniKitProvider } from '@farcaster/minikit';
-
-// --- VCONSOLE (DEBUGGING) ---
-// Importujemy statycznie i odpalamy ZAWSZE (usuń to przed ostatecznym release!)
+// --- VCONSOLE ---
 import VConsole from 'vconsole';
 
-// Inicjalizacja vConsole bezwarunkowa - żebyś widział logi na telefonie w Base App
+// Inicjalizacja vConsole
 const vConsole = new VConsole();
-console.log("vConsole zainicjowany - wersja PROD/DEV");
 
 const APP_NAME = 'Snake Neo Arena';
 const APP_ORIGIN = globalThis?.location?.origin || 'https://snake-neon-arena.vercel.app';
@@ -45,13 +40,8 @@ const config = createConfig({
   },
   ssr: false,
   connectors: [
-    // Base App / Farcaster Mini App auto-connectors
     farcasterMiniApp(),
-    baseAccount({
-      appName: APP_NAME,
-      appLogoUrl: APP_LOGO_URL,
-    }),
-    // Standard web wallets
+    baseAccount({ appName: APP_NAME, appLogoUrl: APP_LOGO_URL }),
     injected({ shimDisconnect: true }),
     metaMask(),
     coinbaseWallet({ appName: APP_NAME, appLogoUrl: APP_LOGO_URL }),
@@ -61,7 +51,6 @@ const config = createConfig({
 
 const queryClient = new QueryClient();
 
-// Opcje SDK
 const thirdwebOptions = {
   readonlySettings: {
     chainId: 8453,
@@ -70,8 +59,7 @@ const thirdwebOptions = {
 };
 
 ReactDOM.createRoot(document.getElementById('root')).render(
-  // 🔥 WRAPPER MINIKIT PROVIDER - BEZ TEGO NIE ZADZIAŁA!
-  <MiniKitProvider>
+  // 🔥 USUNIĘTO <MiniKitProvider> BO ONA NIE ISTNIEJE
     <ThirdwebProvider 
       activeChain={Base} 
       sdkOptions={thirdwebOptions}
@@ -84,5 +72,4 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         </QueryClientProvider>
       </WagmiProvider>
     </ThirdwebProvider>
-  </MiniKitProvider>
 );
