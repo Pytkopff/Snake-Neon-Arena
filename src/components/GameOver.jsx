@@ -1,9 +1,10 @@
 import { motion } from 'framer-motion';
 import { useState, useEffect } from 'react';
-import { useAccount, useWalletClient, useSwitchChain, usePublicClient } from 'wagmi';
+import { useAccount, useSwitchChain, usePublicClient } from 'wagmi';
 import { ethers } from 'ethers';
 import { getAddress, parseEther } from 'viem';
 import sdk from '@farcaster/frame-sdk';
+import { useMiniKit } from '@farcaster/minikit';
 
 // 🏆 Badge mint constants
 const RAW_CONTRACT_ADDRESS = "0x720579D73BD6f9b16A4749D9D401f31ed9a418D7";
@@ -27,9 +28,10 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
   const [walletBalance, setWalletBalance] = useState(0n);
   const [balanceLoaded, setBalanceLoaded] = useState(false);
   const { address, chainId } = useAccount();
-  const { data: walletClient } = useWalletClient();
   const { switchChainAsync } = useSwitchChain();
   const publicClient = usePublicClient();
+  const miniKit = useMiniKit();
+  const isMiniKitReady = !!miniKit?.wallet && miniKit?.isReady !== false;
 
   // Sprawdź balans walleta (potrzebne dla paid mint)
   useEffect(() => {
@@ -46,7 +48,18 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
   }, [publicClient, address, chainId]);
 
   const handleMintBadge = async (tokenId) => {
-    if (!address || !walletClient) return;
+    if (!address) return;
+
+    if (!miniKit || !miniKit.wallet) {
+      alert("Open this app in Base App to mint badges.");
+      return;
+    }
+
+    if (miniKit.isReady === false) {
+      alert("MiniKit wallet is not ready yet. Please try again in a moment.");
+      return;
+    }
+
     const isPaid = tokenId === 2;
     const price = isPaid ? PAID_MINT_PRICE : 0n;
 
@@ -62,6 +75,7 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
           return;
         }
       }
+
       const cleanContractAddress = getAddress(RAW_CONTRACT_ADDRESS.trim());
       const cleanCurrency = getAddress(NATIVE_TOKEN);
       const allowlistProof = {
@@ -70,22 +84,52 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
         pricePerToken: price,
         currency: cleanCurrency
       };
+
       const txData = iface.encodeFunctionData("claim", [
         address, tokenId, 1, cleanCurrency, price, allowlistProof, "0x"
       ]);
-      const hash = await walletClient.sendTransaction({
-        account: address,
-        to: cleanContractAddress,
-        data: txData,
-        value: price,
+
+      // Konwersja wartości na hex zgodny z przykładem MiniKit/Base
+      const valueHex = `0x${price.toString(16)}`;
+
+      const result = await miniKit.wallet.sendCalls({
+        calls: [
+          {
+            to: cleanContractAddress,
+            data: txData,
+            value: valueHex,
+          },
+        ],
+        capabilities: {
+          dataSuffix: {
+            // Migracja na MiniKit – ERC-8021 attribution dodane
+            // TODO: Wstaw tutaj suffix wygenerowany w Encode Attribution tool dla swojego builder code
+            value: '0x07626f696b356e77710080218021802180218021802180218021',
+            optional: true,
+          },
+        },
       });
-      if (publicClient) {
+
+      // Próbujemy wyciągnąć hash transakcji z wyniku MiniKit (zostawiamy elastyczną obsługę)
+      let hash = null;
+      if (typeof result === 'string') {
+        hash = result;
+      } else if (Array.isArray(result) && result[0]?.hash) {
+        hash = result[0].hash;
+      } else if (result?.hash) {
+        hash = result.hash;
+      } else if (result?.transactions?.[0]?.hash) {
+        hash = result.transactions[0].hash;
+      }
+
+      if (publicClient && hash) {
         const receipt = await publicClient.waitForTransactionReceipt({ hash });
         if (receipt.status !== 'success') throw new Error("Transaction failed");
       }
+
       setMintResults(prev => ({ ...prev, [tokenId]: 'success' }));
     } catch (err) {
-      console.error("❌ Badge Mint Error:", err);
+      console.error("❌ Badge Mint Error (MiniKit):", err);
       if (!err.message?.includes("User rejected")) {
         setMintResults(prev => ({ ...prev, [tokenId]: 'error' }));
       }
@@ -226,6 +270,13 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
               transition: 'opacity 0.5s ease-in'
             }}
           >
+            {!isMiniKitReady ? (
+              <div className="flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-yellow-500/10 border border-yellow-500/30 text-[11px] text-yellow-200">
+                {/* Fallback poza Base App / MiniKit */}
+                Open this app in Base App to mint badges.
+              </div>
+            ) : (
+            <>
             {/* Hello World Badge (FREE) */}
             {mintResults[0] === 'success' ? (
               <div className="flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-green-500/10 border border-green-500/30">
@@ -296,6 +347,8 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
                   {mintingId === 2 ? 'MINTING...' : mintResults[2] === 'error' ? 'RETRY' : '0.00034 ETH'}
                 </div>
               </button>
+            )}
+            </>
             )}
           </div>
         )}

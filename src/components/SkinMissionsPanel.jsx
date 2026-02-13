@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { useAccount, useWalletClient, useSwitchChain, usePublicClient } from 'wagmi';
+import { useAccount, useSwitchChain, usePublicClient } from 'wagmi';
 import { ethers } from "ethers"; 
 import { getAddress, parseEther } from 'viem'; 
 import { SKINS, MISSIONS } from '../utils/constants';
 import sdk from '@farcaster/frame-sdk'; // Dodajemy SDK żeby otwierać linki
+import { useMiniKit } from '@farcaster/minikit';
 
 const RAW_CONTRACT_ADDRESS = "0x720579D73BD6f9b16A4749D9D401f31ed9a418D7";
 const BASE_CHAIN_ID = 8453;
@@ -32,9 +33,10 @@ const SkinMissionsPanel = ({
   const [mintSuccess, setMintSuccess] = useState(null); // null lub hash transakcji
 
   const { address, chainId } = useAccount(); 
-  const { data: walletClient } = useWalletClient(); 
   const { switchChainAsync } = useSwitchChain();
   const publicClient = usePublicClient();
+  const miniKit = useMiniKit();
+  const isMiniKitReady = !!miniKit?.wallet && miniKit?.isReady !== false;
 
   const openExternalUrl = (url) => {
     if (sdk?.actions?.openUrl) {
@@ -73,7 +75,17 @@ const SkinMissionsPanel = ({
   }, [publicClient, address, chainId]);
 
   const handleMint = async (tokenId) => {
-    if (!address || !walletClient) return;
+    if (!address) return;
+
+    if (!miniKit || !miniKit.wallet) {
+      alert("Open this app in Base App to mint badges.");
+      return;
+    }
+
+    if (miniKit.isReady === false) {
+      alert("MiniKit wallet is not ready yet. Please try again in a moment.");
+      return;
+    }
 
     setIsMinting(true);
 
@@ -111,12 +123,36 @@ const SkinMissionsPanel = ({
         address, tokenId, 1, cleanCurrency, pricePerToken, allowlistProof, "0x"
       ]);
 
-      const hash = await walletClient.sendTransaction({
-        account: address,
-        to: cleanContractAddress,
-        data: txData,
-        value: valueToSend,
+      const valueHex = `0x${valueToSend.toString(16)}`;
+
+      const result = await miniKit.wallet.sendCalls({
+        calls: [
+          {
+            to: cleanContractAddress,
+            data: txData,
+            value: valueHex,
+          },
+        ],
+        capabilities: {
+          dataSuffix: {
+            // Migracja na MiniKit – ERC-8021 attribution dodane
+            // TODO: Wstaw tutaj suffix wygenerowany w Encode Attribution tool dla swojego builder code
+            value: '0x07626f696b356e77710080218021802180218021802180218021',
+            optional: true,
+          },
+        },
       });
+
+      let hash = null;
+      if (typeof result === 'string') {
+        hash = result;
+      } else if (Array.isArray(result) && result[0]?.hash) {
+        hash = result[0].hash;
+      } else if (result?.hash) {
+        hash = result.hash;
+      } else if (result?.transactions?.[0]?.hash) {
+        hash = result.transactions[0].hash;
+      }
 
       console.log("✅ Hash:", hash);
 
@@ -125,16 +161,18 @@ const SkinMissionsPanel = ({
         throw new Error("Public client not available");
       }
 
-      const receipt = await publicClient.waitForTransactionReceipt({ hash });
-      if (receipt.status !== 'success') {
-        throw new Error("Transaction failed");
+      if (hash) {
+        const receipt = await publicClient.waitForTransactionReceipt({ hash });
+        if (receipt.status !== 'success') {
+          throw new Error("Transaction failed");
+        }
       }
 
       // 🔥 ZAMIAST ALERTU -> USTAW STAN SUKCESU 🔥
-      setMintSuccess(hash);
+      setMintSuccess(hash || null);
 
     } catch (err) {
-      console.error("❌ Mint Error:", err);
+      console.error("❌ Mint Error (MiniKit):", err);
       if (err.message && err.message.includes("User rejected")) {
          // User anulował
       } else {
@@ -284,6 +322,12 @@ const SkinMissionsPanel = ({
                           {isNftMission && (
                               isCompleted ? (
                                 <>
+                                  {!isMiniKitReady ? (
+                                    <div className="flex items-center gap-1 bg-yellow-500/10 px-2 py-1 rounded border border-yellow-500/30 text-[10px] text-yellow-200 text-right">
+                                      Open this app in Base App to mint badges.
+                                    </div>
+                                  ) : (
+                                  <>
                                   {(() => {
                                     const isPaidMint = tokenId === 2;
                                     const hasEnoughBalance = !isPaidMint || (balanceLoaded && walletBalance >= PAID_MINT_PRICE);
@@ -305,6 +349,8 @@ const SkinMissionsPanel = ({
                                       </>
                                     );
                                   })()}
+                                  </>
+                                  )}
                                 </>
                               ) : (
                                 <div className="flex items-center gap-1 bg-black/40 px-2 py-1 rounded border border-white/10 opacity-50">
