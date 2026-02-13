@@ -6,15 +6,13 @@ import ReactDOM from 'react-dom/client';
 import App from './App.jsx';
 import './index.css';
 
-// --- IMPORTY WEB3 ---
-import '@rainbow-me/rainbowkit/styles.css';
-import { RainbowKitProvider, darkTheme } from '@rainbow-me/rainbowkit';
+// --- MINIMALNE IMPORTY WEB3 – TYLKO TO CO POTRZEBNE W BASE APP ---
 import { WagmiProvider, createConfig, http } from 'wagmi';
 import { base } from 'wagmi/chains';
-import { coinbaseWallet, injected, metaMask, walletConnect } from 'wagmi/connectors';
+import { coinbaseWallet } from 'wagmi/connectors';
 import { QueryClientProvider, QueryClient } from "@tanstack/react-query";
 
-// --- IMPORTY THIRDWEB ---
+// --- THIRDWEB ---
 import { ThirdwebProvider } from "@thirdweb-dev/react";
 import { Base } from "@thirdweb-dev/chains";
 
@@ -25,7 +23,6 @@ const vConsole = new VConsole();
 const APP_NAME = 'Snake Neon Arena';
 const APP_ORIGIN = globalThis?.location?.origin || 'https://snake-neon-arena.vercel.app';
 const APP_LOGO_URL = `${APP_ORIGIN}/logo.png`;
-const WALLET_CONNECT_PROJECT_ID = import.meta.env.VITE_WALLET_CONNECT_PROJECT_ID || 'YOUR_PROJECT_ID';
 
 const config = createConfig({
   chains: [base],
@@ -35,9 +32,6 @@ const config = createConfig({
   ssr: false,
   connectors: [
     coinbaseWallet({ appName: APP_NAME, appLogoUrl: APP_LOGO_URL }),
-    injected({ shimDisconnect: true }),
-    metaMask(),
-    walletConnect({ projectId: WALLET_CONNECT_PROJECT_ID }),
   ],
 });
 
@@ -57,9 +51,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   >
     <WagmiProvider config={config}>
       <QueryClientProvider client={queryClient}>
-        <RainbowKitProvider theme={darkTheme()} coolMode>
-          <App />
-        </RainbowKitProvider>
+        <App />
       </QueryClientProvider>
     </WagmiProvider>
   </ThirdwebProvider>
