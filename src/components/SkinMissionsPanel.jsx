@@ -90,6 +90,7 @@ const SkinMissionsPanel = ({
         wallet: !!miniKit?.wallet,
         authenticated: miniKit?.isAuthenticated,
       });
+      console.log('MiniKit full object (SkinMissionsPanel):', miniKit);
 
       const elapsed = Date.now() - start;
       if (

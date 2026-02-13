@@ -63,6 +63,7 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
         wallet: !!miniKit?.wallet,
         authenticated: miniKit?.isAuthenticated,
       });
+      console.log('MiniKit full object (GameOver):', miniKit);
 
       const elapsed = Date.now() - start;
       if (

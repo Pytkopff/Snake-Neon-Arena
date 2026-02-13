@@ -21,6 +21,19 @@ import { QueryClientProvider, QueryClient } from "@tanstack/react-query";
 import { ThirdwebProvider } from "@thirdweb-dev/react";
 import { Base } from "@thirdweb-dev/chains"; 
 
+// vConsole – tylko w trybie deweloperskim (np. lokalnie / preview z DEV)
+if (import.meta.env.DEV) {
+  import('vconsole')
+    .then(({ default: VConsole }) => {
+      // Migracja na MiniKit – debug: włącz vConsole na urządzeniach mobilnych
+      // eslint-disable-next-line no-new
+      new VConsole();
+    })
+    .catch((err) => {
+      console.error('vConsole init failed:', err);
+    });
+}
+
 const APP_NAME = 'Snake Neo Arena';
 const APP_ORIGIN = globalThis?.location?.origin || 'https://snake-neon-arena.vercel.app';
 const APP_LOGO_URL = `${APP_ORIGIN}/logo.png`;
