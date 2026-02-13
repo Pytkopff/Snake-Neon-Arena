@@ -1,14 +1,9 @@
 import { motion } from 'framer-motion';
 import { useState, useEffect } from 'react';
-// 🔥 ZMIANA: Dodano useWalletClient, usunięto zbędne
 import { useAccount, useSwitchChain, usePublicClient, useWalletClient } from 'wagmi';
 import { ethers } from 'ethers';
 import { getAddress, parseEther } from 'viem';
-import { useOnchainKit } from '@coinbase/onchainkit';
 
-// ... reszta zmiennych ...
-
-const onchainKit = useOnchainKit();
 // 🏆 Badge mint constants
 const RAW_CONTRACT_ADDRESS = "0x720579D73BD6f9b16A4749D9D401f31ed9a418D7";
 const BASE_CHAIN_ID = 8453;
@@ -19,7 +14,7 @@ const iface = new ethers.utils.Interface([
 const NATIVE_TOKEN = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
 const MAX_UINT256 = "115792089237316195423570985008687907853269984665640564039457584007913129639935";
 
-// 🔥 NOWE: Attribution Suffix dla Base (ERC-8021)
+// 🔥 Attribution Suffix dla Base (ERC-8021) – ręczny
 const ATTRIBUTION_SUFFIX = '0x626f696b356e7771080080218021802180218021802180218021';
 
 const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare, onBackToMenu, endReason, applesCollected }) => {
@@ -36,7 +31,7 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
   const { address, chainId } = useAccount();
   const { switchChainAsync } = useSwitchChain();
   const publicClient = usePublicClient();
-  const { data: walletClient } = useWalletClient(); // 🔥 Klucz do wysyłania tx
+  const { data: walletClient } = useWalletClient();
 
   // Sprawdź balans walleta
   useEffect(() => {
@@ -52,67 +47,72 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
     return () => { isMounted = false; };
   }, [publicClient, address, chainId]);
 
- const handleMintBadge = async (tokenId) => {
-  if (!address) return;
+  const handleMintBadge = async (tokenId) => {
+    if (!address) return;
 
-  if (!walletClient) {
-    alert("Please open this app in Base App or connect a wallet.");
-    return;
-  }
+    if (!walletClient) {
+      alert("Please open this app in Base App or connect a wallet.");
+      return;
+    }
 
-  const isPaid = tokenId === 2;
-  const price = isPaid ? PAID_MINT_PRICE : 0n;
+    const isPaid = tokenId === 2;
+    const price = isPaid ? PAID_MINT_PRICE : 0n;
 
-  setMintingId(tokenId);
-  setMintResults(prev => ({ ...prev, [tokenId]: null }));
+    setMintingId(tokenId);
+    setMintResults(prev => ({ ...prev, [tokenId]: null }));
 
-  try {
-    if (chainId !== BASE_CHAIN_ID) {
-      try {
-        await switchChainAsync({ chainId: BASE_CHAIN_ID });
-      } catch {
-         console.warn("Switch chain skipped/failed");
+    try {
+      if (chainId !== BASE_CHAIN_ID) {
+        try {
+          await switchChainAsync({ chainId: BASE_CHAIN_ID });
+        } catch {
+           console.warn("Switch chain skipped/failed");
+        }
       }
+
+      const cleanContractAddress = getAddress(RAW_CONTRACT_ADDRESS.trim());
+      const cleanCurrency = getAddress(NATIVE_TOKEN);
+      const allowlistProof = {
+        proof: [],
+        quantityLimitPerWallet: MAX_UINT256,
+        pricePerToken: price,
+        currency: cleanCurrency
+      };
+
+      const txData = iface.encodeFunctionData("claim", [
+        address, tokenId, 1, cleanCurrency, price, allowlistProof, "0x"
+      ]);
+
+      // 🔥 Ręczny suffix – to działało w logach
+      const fullData = txData + ATTRIBUTION_SUFFIX.slice(2);
+
+      console.log("Full data z suffixem:", fullData); // ← log do sprawdzenia
+
+      const hash = await walletClient.sendTransaction({
+        to: cleanContractAddress,
+        data: fullData, 
+        value: price,
+        chain: null 
+      });
+
+      console.log("✅ Tx Hash:", hash);
+
+      if (publicClient && hash) {
+        const receipt = await publicClient.waitForTransactionReceipt({ hash });
+        if (receipt.status !== 'success') throw new Error("Transaction failed on-chain");
+      }
+
+      setMintResults(prev => ({ ...prev, [tokenId]: 'success' }));
+    } catch (err) {
+      console.error("❌ Badge Mint Error:", err);
+      if (!err.message?.includes("User rejected")) {
+        setMintResults(prev => ({ ...prev, [tokenId]: 'error' }));
+        alert("Mint failed: " + (err.message || "Unknown error"));
+      }
+    } finally {
+      setMintingId(null);
     }
-
-    const cleanContractAddress = getAddress(RAW_CONTRACT_ADDRESS.trim());
-    const cleanCurrency = getAddress(NATIVE_TOKEN);
-    const allowlistProof = {
-      proof: [],
-      quantityLimitPerWallet: MAX_UINT256,
-      pricePerToken: price,
-      currency: cleanCurrency
-    };
-
-    const txData = iface.encodeFunctionData("claim", [
-      address, tokenId, 1, cleanCurrency, price, allowlistProof, "0x"
-    ]);
-
-    const hash = await walletClient.sendTransaction({
-      to: cleanContractAddress,
-      data: txData, 
-      value: price,
-      chain: null 
-    });
-
-    console.log("✅ Tx Hash:", hash);
-
-    if (publicClient && hash) {
-      const receipt = await publicClient.waitForTransactionReceipt({ hash });
-      if (receipt.status !== 'success') throw new Error("Transaction failed on-chain");
-    }
-
-    setMintResults(prev => ({ ...prev, [tokenId]: 'success' }));
-  } catch (err) {
-    console.error("❌ Badge Mint Error:", err);
-    if (!err.message?.includes("User rejected")) {
-      setMintResults(prev => ({ ...prev, [tokenId]: 'error' }));
-      alert("Mint failed: " + (err.message || "Unknown error"));
-    }
-  } finally {
-    setMintingId(null);
-  }
-};
+  };
 
   // Ticker Score
   useEffect(() => {
@@ -141,7 +141,7 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
       setCanInteract(true);
     }, 1500);
     return () => clearTimeout(timer);
-    }, [score]);
+  }, [score]);
   
   const progressToBest = bestScore > 0 ? Math.min(100, (score / bestScore) * 100) : 100;
   const missingPoints = bestScore - score;
@@ -230,7 +230,7 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
           </div>
         </div>
 
-        {/* --- 🏆 BADGE MINT SECTION --- */}
+        {/* --- BADGE MINT SECTION --- */}
         {address && (
           <div 
             className="space-y-2 mb-4 relative z-10"
@@ -239,7 +239,6 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
               transition: 'opacity 0.5s ease-in'
             }}
           >
-            {/* 🔥 NOWE: Sprawdzenie walletClient zamiast MiniKit */}
             {!walletClient ? (
                <div className="text-yellow-300 text-center py-4 text-[11px] border border-yellow-500/20 rounded-xl bg-yellow-500/5">
                  ⚠️ Otwórz w Base App aby odebrać nagrody.

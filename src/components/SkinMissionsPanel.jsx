@@ -1,339 +1,375 @@
-import { useEffect, useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-// 🔥 ZMIANA: Dodano useWalletClient, usunięto MiniKit
+import { motion } from 'framer-motion';
+import { useState, useEffect } from 'react';
 import { useAccount, useSwitchChain, usePublicClient, useWalletClient } from 'wagmi';
-import { ethers } from "ethers"; 
-import { getAddress, parseEther } from 'viem'; 
-import { SKINS, MISSIONS } from '../utils/constants';
-import sdk from '@farcaster/frame-sdk'; 
-import { useOnchainKit } from '@coinbase/onchainkit';
+import { ethers } from 'ethers';
+import { getAddress, parseEther } from 'viem';
 
-// ... reszta zmiennych ...
-
-const onchainKit = useOnchainKit();
+// 🏆 Badge mint constants
 const RAW_CONTRACT_ADDRESS = "0x720579D73BD6f9b16A4749D9D401f31ed9a418D7";
 const BASE_CHAIN_ID = 8453;
-const NATIVE_TOKEN = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
 const PAID_MINT_PRICE = parseEther("0.00034");
-const MAX_UINT256 = "115792089237316195423570985008687907853269984665640564039457584007913129639935";
-
-// 🔥 NOWE: Attribution Suffix dla Base (ERC-8021)
-const ATTRIBUTION_SUFFIX = '0x626f696b356e7771080080218021802180218021802180218021';
-
 const iface = new ethers.utils.Interface([
   "function claim(address receiver, uint256 tokenId, uint256 quantity, address currency, uint256 pricePerToken, tuple(bytes32[] proof, uint256 quantityLimitPerWallet, uint256 pricePerToken, address currency) allowlistProof, bytes data)"
 ]);
+const NATIVE_TOKEN = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
+const MAX_UINT256 = "115792089237316195423570985008687907853269984665640564039457584007913129639935";
 
-const SkinMissionsPanel = ({ 
-  unlockedSkins, 
-  currentSkinId, 
-  onSelectSkin, 
-  onClose, 
-  playerStats 
-}) => {
-  const [activeTab, setActiveTab] = useState('missions');
-  const [isMinting, setIsMinting] = useState(false);
+// 🔥 Attribution Suffix – ręczny (działa w logach)
+const ATTRIBUTION_SUFFIX = '0x626f696b356e7771080080218021802180218021802180218021';
+
+const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare, onBackToMenu, endReason, applesCollected }) => {
+  const [displayScore, setDisplayScore] = useState(0);
+  const [canInteract, setCanInteract] = useState(false);
+
+  // Mint state
+  const [mintingId, setMintingId] = useState(null);
+  const [mintResults, setMintResults] = useState({}); 
   const [walletBalance, setWalletBalance] = useState(0n);
   const [balanceLoaded, setBalanceLoaded] = useState(false);
-  const [mintSuccess, setMintSuccess] = useState(null); 
-  
+
   // Wagmi hooks
-  const { address, chainId } = useAccount(); 
+  const { address, chainId } = useAccount();
   const { switchChainAsync } = useSwitchChain();
   const publicClient = usePublicClient();
-  const { data: walletClient } = useWalletClient(); // 🔥 Klucz do wysyłania tx
+  const { data: walletClient } = useWalletClient();
 
-  const openExternalUrl = (url) => {
-    if (sdk?.actions?.openUrl) {
-      sdk.actions.openUrl(url);
-      return;
-    }
-    window.open(url, '_blank', 'noopener,noreferrer');
-  };
-
-  // Pre-check balance
+  // Sprawdź balans walleta
   useEffect(() => {
     let isMounted = true;
     const loadBalance = async () => {
-      if (!publicClient || !address) {
-        if (isMounted) { setWalletBalance(0n); setBalanceLoaded(false); }
-        return;
-      }
+      if (!publicClient || !address) return;
       try {
         const balance = await publicClient.getBalance({ address });
         if (isMounted) { setWalletBalance(balance); setBalanceLoaded(true); }
-      } catch (err) {
-        if (isMounted) { setWalletBalance(0n); setBalanceLoaded(false); }
-      }
+      } catch { if (isMounted) { setWalletBalance(0n); setBalanceLoaded(false); } }
     };
     loadBalance();
     return () => { isMounted = false; };
   }, [publicClient, address, chainId]);
 
-const handleMint = async (tokenId) => {
-  if (!address) return;
+  const handleMintBadge = async (tokenId) => {
+    if (!address) return;
 
-  if (!walletClient) {
-    alert("Please open this app in Base App or connect a wallet.");
-    return;
-  }
+    if (!walletClient) {
+      alert("Please open this app in Base App or connect a wallet.");
+      return;
+    }
 
-  setIsMinting(true);
+    const isPaid = tokenId === 2;
+    const price = isPaid ? PAID_MINT_PRICE : 0n;
 
-  try {
-    if (chainId !== BASE_CHAIN_ID) {
-      try {
-        await switchChainAsync({ chainId: BASE_CHAIN_ID });
-      } catch (e) {
-        console.warn(e);
+    setMintingId(tokenId);
+    setMintResults(prev => ({ ...prev, [tokenId]: null }));
+
+    try {
+      if (chainId !== BASE_CHAIN_ID) {
+        try {
+          await switchChainAsync({ chainId: BASE_CHAIN_ID });
+        } catch {
+           console.warn("Switch chain skipped/failed");
+        }
       }
+
+      const cleanContractAddress = getAddress(RAW_CONTRACT_ADDRESS.trim());
+      const cleanCurrency = getAddress(NATIVE_TOKEN);
+      const allowlistProof = {
+        proof: [],
+        quantityLimitPerWallet: MAX_UINT256,
+        pricePerToken: price,
+        currency: cleanCurrency
+      };
+
+      const txData = iface.encodeFunctionData("claim", [
+        address, tokenId, 1, cleanCurrency, price, allowlistProof, "0x"
+      ]);
+
+      // 🔥 Ręczny suffix – działało w logach
+      const fullData = txData + ATTRIBUTION_SUFFIX.slice(2);
+
+      console.log("Full data z suffixem:", fullData); // ← log do sprawdzenia
+
+      const hash = await walletClient.sendTransaction({
+        to: cleanContractAddress,
+        data: fullData, 
+        value: price,
+        chain: null 
+      });
+
+      console.log("✅ Tx Hash:", hash);
+
+      if (publicClient && hash) {
+        const receipt = await publicClient.waitForTransactionReceipt({ hash });
+        if (receipt.status !== 'success') throw new Error("Transaction failed on-chain");
+      }
+
+      setMintResults(prev => ({ ...prev, [tokenId]: 'success' }));
+    } catch (err) {
+      console.error("❌ Badge Mint Error:", err);
+      if (!err.message?.includes("User rejected")) {
+        setMintResults(prev => ({ ...prev, [tokenId]: 'error' }));
+        alert("Mint failed: " + (err.message || "Unknown error"));
+      }
+    } finally {
+      setMintingId(null);
     }
-
-    console.log("🛠️ Mint start (Wagmi + Suffix)...");
-    const cleanContractAddress = getAddress(RAW_CONTRACT_ADDRESS.trim());
-    const cleanCurrency = getAddress(NATIVE_TOKEN);
-
-    let pricePerToken = tokenId === 2 ? PAID_MINT_PRICE : 0n;
-    const allowlistProof = {
-      proof: [],
-      quantityLimitPerWallet: MAX_UINT256,
-      pricePerToken: pricePerToken,
-      currency: cleanCurrency
-    };
-
-    const txData = iface.encodeFunctionData("claim", [
-      address, tokenId, 1, cleanCurrency, pricePerToken, allowlistProof, "0x"
-    ]);
-
-    const hash = await walletClient.sendTransaction({
-      to: cleanContractAddress,
-      data: txData,
-      value: pricePerToken,
-      chain: null
-    });
-
-    console.log("✅ Hash:", hash);
-
-    if (publicClient && hash) {
-      await publicClient.waitForTransactionReceipt({ hash });
-    }
-
-    setMintSuccess(hash || "confirmed");
-  } catch (err) {
-    console.error("❌ Mint Error:", err);
-    if (!err.message?.includes("User rejected")) {
-      alert("Mint failed: " + (err.message || "Unknown error"));
-    }
-  } finally {
-    setIsMinting(false);
-  }
-};
-
-  const getProgress = (mission) => {
-    let current = 0;
-    // Zabezpieczenie przed brakiem statystyk
-    if (!playerStats) return { current: 0, percent: 0 };
-
-    if (mission.type === 'games') current = playerStats.totalGames;
-    else if (mission.type === 'apples') current = playerStats.totalApples;
-    else if (mission.type === 'score') {
-       if (mission.mode === 'classic') current = playerStats.bestScoreClassic || 0;
-       else if (mission.mode === 'walls') current = playerStats.bestScoreWalls || 0;
-       else if (mission.mode === 'chill') current = playerStats.bestScoreChill || 0;
-       else current = playerStats.bestScore || 0;
-    }
-    const percent = Math.min(100, Math.floor((current / mission.target) * 100));
-    return { current, percent };
   };
 
-  const getBadgeTokenId = (missionId) => {
-    if (missionId === 'm_newbie') return 0;      
-    if (missionId === 'm_supporter') return 2;   
-    return null; 
-  };
+  // Ticker Score
+  useEffect(() => {
+    let start = 0;
+    const duration = 1500; 
+    const steps = 60;
+    const increment = score / steps;
+    const stepTime = duration / steps;
+    if (score === 0) return;
+    const timer = setInterval(() => {
+      start += increment;
+      if (start >= score) {
+        setDisplayScore(score);
+        clearInterval(timer);
+      } else {
+        setDisplayScore(Math.floor(start));
+      }
+    }, stepTime);
+    return () => clearInterval(timer);
+  }, [score]);
+
+  // Timer Anti-Rage
+  useEffect(() => {
+    setCanInteract(false);
+    const timer = setTimeout(() => {
+      setCanInteract(true);
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [score]);
+  
+  const progressToBest = bestScore > 0 ? Math.min(100, (score / bestScore) * 100) : 100;
+  const missingPoints = bestScore - score;
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 bg-black/80 backdrop-blur-xl rounded-xl border border-white/10 overflow-hidden relative shadow-2xl">
-      
-      {/* MODAL SUKCESU */}
-      <AnimatePresence>
-        {mintSuccess && (
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.9 }}
-            className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/95 backdrop-blur-md p-6 text-center"
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      className="fixed inset-0 bg-black/90 backdrop-blur-md z-[60] flex items-center justify-center p-4 overflow-y-auto"
+    >
+      <motion.div
+        initial={{ scale: 0.9, y: 30 }}
+        animate={{ scale: 1, y: 0 }}
+        transition={{ type: 'spring', damping: 20 }}
+        className="glass rounded-2xl p-6 w-full max-w-sm text-center border border-white/10 shadow-[0_0_50px_rgba(0,0,0,0.5)] relative overflow-hidden my-auto shrink-0"
+      >
+        {/* Tło dla Nowego Rekordu */}
+        {isNewRecord && (
+           <div className="absolute inset-0 bg-gradient-to-t from-yellow-500/10 via-purple-500/10 to-transparent animate-pulse pointer-events-none" />
+        )}
+
+        {/* --- NAGŁÓWEK --- */}
+        <div className="mb-6 relative z-10">
+          {isNewRecord ? (
+            <motion.div 
+              animate={{ scale: [1, 1.05, 1] }} 
+              transition={{ repeat: Infinity, duration: 2 }}
+            >
+              <div className="text-5xl mb-2 drop-shadow-lg">🏆</div>
+              <h2 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-yellow-300 to-yellow-500 drop-shadow-[0_0_15px_rgba(234,179,8,0.5)] uppercase italic">
+                New Record!
+              </h2>
+              <p className="text-sm text-yellow-200 font-bold mt-1">LEGENDARY RUN!</p>
+            </motion.div>
+          ) : (
+            <div>
+              <div className="text-5xl mb-2 grayscale opacity-80">
+                 {endReason === 'timeup' ? "⏱️" : "💀"}
+              </div>
+              <h2 className="text-3xl font-black text-white drop-shadow-md uppercase">
+                 {endReason === 'timeup' ? "Time's Up" : "Game Over"}
+              </h2>
+              <p className="text-sm text-gray-400 mt-1">Don't give up! Try again.</p>
+            </div>
+          )}
+        </div>
+
+        {/* --- WYNIK --- */}
+        <div className="mb-6 relative z-10">
+          <div className="text-6xl font-black text-white drop-shadow-[0_0_20px_rgba(0,240,255,0.4)] font-mono tracking-tighter">
+            {displayScore.toLocaleString()}
+          </div>
+          <div className="text-xs text-neon-blue font-bold tracking-widest uppercase mt-1">Final Score</div>
+        </div>
+
+        {/* --- PROGRESS BAR --- */}
+        {!isNewRecord && bestScore > 0 && (
+          <div className="mb-6 bg-black/40 rounded-xl p-3 border border-white/5 relative z-10 mx-2">
+             <div className="flex justify-between text-[10px] text-gray-400 mb-1 uppercase tracking-wider font-bold">
+                <span>Progress to Best</span>
+                <span className="text-white">{Math.floor(progressToBest)}%</span>
+             </div>
+             <div className="w-full h-3 bg-gray-800 rounded-full overflow-hidden border border-white/5">
+                <motion.div 
+                  initial={{ width: 0 }} 
+                  animate={{ width: `${progressToBest}%` }} 
+                  transition={{ duration: 1.5, ease: "easeOut" }}
+                  className="h-full bg-gradient-to-r from-gray-600 via-gray-400 to-white shadow-[0_0_10px_rgba(255,255,255,0.5)]"
+                />
+             </div>
+             <p className="text-[10px] text-gray-400 mt-2">
+                You were only <span className="text-red-400 font-bold">{missingPoints} pts</span> away from glory!
+             </p>
+          </div>
+        )}
+
+        {/* --- STATYSTYKI --- */}
+        <div className="grid grid-cols-2 gap-3 mb-6 relative z-10">
+          <div className="bg-white/5 p-3 rounded-xl border border-white/10">
+            <div className="text-2xl font-bold text-red-400 drop-shadow-sm">{applesCollected}</div>
+            <div className="text-[10px] text-gray-400 uppercase font-bold">Apples</div>
+          </div>
+          <div className="bg-white/5 p-3 rounded-xl border border-white/10">
+            <div className="text-2xl font-bold text-yellow-400 drop-shadow-sm">x{maxCombo || 0}</div>
+            <div className="text-[10px] text-gray-400 uppercase font-bold">Max Combo</div>
+          </div>
+        </div>
+
+        {/* --- BADGE MINT SECTION --- */}
+        {address && (
+          <div 
+            className="space-y-2 mb-4 relative z-10"
+            style={{
+              opacity: canInteract ? 1 : 0,
+              transition: 'opacity 0.5s ease-in'
+            }}
           >
-             <div className="w-20 h-20 bg-green-500/20 rounded-full flex items-center justify-center mb-4 border border-green-500 shadow-[0_0_30px_#22c55e]">
-                <div className="text-4xl">🎉</div>
-             </div>
-             <h2 className="text-2xl font-black text-white mb-2 tracking-wider">MINT SUCCESS!</h2>
-             <p className="text-gray-400 text-sm mb-6">Your transaction is on its way to the blockchain.</p>
-             <div className="flex flex-col gap-3 w-full">
-               {mintSuccess !== "confirmed" && (
-                 <button 
-                   onClick={() => openExternalUrl(`https://basescan.org/tx/${mintSuccess}`)}
-                   className="w-full py-3 rounded-xl border border-white/10 bg-white/5 text-neon-blue font-bold text-sm hover:bg-white/10 transition-all flex items-center justify-center gap-2"
-                 >
-                   🔍 View on BaseScan
-                 </button>
-               )}
-               <button onClick={() => { setMintSuccess(null); onClose(); }} className="w-full py-3 rounded-xl bg-green-500 text-black font-black tracking-widest hover:scale-105 transition-all">AWESOME!</button>
-             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+            {!walletClient ? (
+               <div className="text-yellow-300 text-center py-4 text-[11px] border border-yellow-500/20 rounded-xl bg-yellow-500/5">
+                 ⚠️ Otwórz w Base App aby odebrać nagrody.
+               </div>
+            ) : (
+            <>
+            {/* Hello World Badge (FREE) */}
+            {mintResults[0] === 'success' ? (
+              <div className="flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-green-500/10 border border-green-500/30">
+                <span className="text-base">✅</span>
+                <span className="text-xs font-bold text-green-400">Hello World Claimed!</span>
+              </div>
+            ) : (
+              <button
+                onClick={() => handleMintBadge(0)}
+                disabled={mintingId !== null}
+                className={`w-full flex items-center justify-between py-2.5 px-4 rounded-xl border transition-all
+                  ${mintingId === 0 
+                    ? 'bg-white/5 border-white/10 cursor-wait' 
+                    : 'bg-gradient-to-r from-yellow-500/10 to-orange-500/10 border-yellow-500/30 hover:border-yellow-400/50 hover:scale-[1.01] active:scale-[0.99]'
+                  }`}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-lg">🏆</span>
+                  <div className="text-left">
+                    <div className="text-sm font-bold text-white leading-tight">Hello World Badge</div>
+                    <div className="text-[10px] text-gray-400">Free mint on Base</div>
+                  </div>
+                </div>
+                <div className={`text-[11px] font-bold px-3 py-1.5 rounded-lg transition-all
+                  ${mintingId === 0 
+                    ? 'bg-gray-600 text-gray-300' 
+                    : 'bg-gradient-to-r from-yellow-500 to-orange-500 text-black shadow-[0_0_10px_rgba(234,179,8,0.3)]'
+                  }`}>
+                  {mintingId === 0 ? 'MINTING...' : mintResults[0] === 'error' ? 'RETRY' : 'CLAIM FREE'}
+                </div>
+              </button>
+            )}
 
-      {/* TABS */}
-      <div className="flex border-b border-white/10 shrink-0 bg-white/5">
-         <button onClick={() => setActiveTab('skins')} className={`flex-1 py-4 text-sm font-bold uppercase tracking-wider transition-colors relative ${activeTab === 'skins' ? 'text-neon-blue' : 'text-gray-500 hover:text-gray-300'}`}>
-           🎨 Skins
-           {activeTab === 'skins' && <motion.div layoutId="tab-highlight" className="absolute bottom-0 left-0 right-0 h-0.5 bg-neon-blue shadow-[0_0_10px_#00f0ff]" />}
-         </button>
-         <button onClick={() => setActiveTab('missions')} className={`flex-1 py-4 text-sm font-bold uppercase tracking-wider transition-colors relative ${activeTab === 'missions' ? 'text-yellow-400' : 'text-gray-500 hover:text-gray-300'}`}>
-           🎯 Missions
-           {activeTab === 'missions' && <motion.div layoutId="tab-highlight" className="absolute bottom-0 left-0 right-0 h-0.5 bg-yellow-400 shadow-[0_0_10px_#facc15]" />}
-         </button>
-      </div>
-
-      <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
-        {/* SKINS TAB */}
-        {activeTab === 'skins' && (
-           <div className="grid grid-cols-1 gap-3">
-             <div className="flex justify-between items-center mb-2 px-1">
-                <span className="text-[10px] font-bold tracking-widest text-gray-400 uppercase">Your Collection</span>
-                <span className="text-xs font-mono text-neon-blue">{unlockedSkins.length} / {SKINS.length}</span>
-             </div>
-             {SKINS.map(skin => {
-                const isUnlocked = unlockedSkins.includes(skin.id);
-                const isSelected = currentSkinId === skin.id;
-                return (
-                  <button key={skin.id} disabled={!isUnlocked} onClick={() => onSelectSkin(skin.id)} 
-                    className={`p-3 rounded-xl border flex items-center justify-between transition-all group relative overflow-hidden
-                    ${isSelected ? 'bg-neon-blue/10 border-neon-blue/50 shadow-[0_0_15px_rgba(0,240,255,0.15)]' : 'bg-white/5 border-white/5 hover:bg-white/10'} 
-                    ${!isUnlocked && 'opacity-60 grayscale'}`}
-                  >
-                    <div className="flex items-center gap-4 z-10">
-                      <div className="w-12 h-12 rounded-lg shadow-inner relative overflow-hidden border border-white/10 flex items-center justify-center bg-black/40">
-                          <div className="w-8 h-8 rounded-full shadow-[0_0_10px_rgba(255,255,255,0.3)]" style={{ background: `linear-gradient(135deg, ${skin.color[0]}, ${skin.color[1]})` }}></div>
-                      </div>
-                      <div className="text-left">
-                        <div className={`font-bold text-sm ${isSelected ? 'text-white' : 'text-gray-300 group-hover:text-white'}`}>{skin.name}</div>
-                        <div className="text-[10px] text-gray-500">{isUnlocked ? 'Tap to equip' : 'Complete missions to unlock'}</div>
-                      </div>
+            {/* Supporter Badge (PAID) */}
+            {mintResults[2] === 'success' ? (
+              <div className="flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-green-500/10 border border-green-500/30">
+                <span className="text-base">✅</span>
+                <span className="text-xs font-bold text-green-400">Supporter Badge Claimed!</span>
+              </div>
+            ) : (
+              <button
+                onClick={() => handleMintBadge(2)}
+                disabled={mintingId !== null || (balanceLoaded && walletBalance < PAID_MINT_PRICE)}
+                className={`w-full flex items-center justify-between py-2.5 px-4 rounded-xl border transition-all
+                  ${mintingId === 2 
+                    ? 'bg-white/5 border-white/10 cursor-wait' 
+                    : (balanceLoaded && walletBalance < PAID_MINT_PRICE)
+                      ? 'bg-white/5 border-white/5 opacity-50 cursor-not-allowed'
+                      : 'bg-gradient-to-r from-cyan-500/10 to-teal-500/10 border-cyan-500/30 hover:border-cyan-400/50 hover:scale-[1.01] active:scale-[0.99]'
+                  }`}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-lg">💎</span>
+                  <div className="text-left">
+                    <div className="text-sm font-bold text-white leading-tight">Supporter Badge</div>
+                    <div className="text-[10px] text-gray-400">
+                      {balanceLoaded && walletBalance < PAID_MINT_PRICE ? 'Not enough ETH' : 'Support the Dev'}
                     </div>
-                    
-                    <div className="z-10">
-                        {isSelected ? <span className="text-[10px] font-bold bg-neon-blue text-black px-2 py-1 rounded shadow-[0_0_10px_rgba(0,240,255,0.5)]">EQUIPPED</span> : isUnlocked ? <span className="text-neon-blue opacity-0 group-hover:opacity-100 transition-opacity text-xs">SELECT</span> : <span className="text-lg">🔒</span>}
-                    </div>
-                  </button>
-                )
-             })}
-           </div>
+                  </div>
+                </div>
+                <div className={`text-[11px] font-bold px-3 py-1.5 rounded-lg transition-all
+                  ${mintingId === 2 
+                    ? 'bg-gray-600 text-gray-300' 
+                    : (balanceLoaded && walletBalance < PAID_MINT_PRICE)
+                      ? 'bg-gray-700 text-gray-400'
+                      : 'bg-gradient-to-r from-cyan-500 to-teal-500 text-black shadow-[0_0_10px_rgba(0,240,255,0.3)]'
+                  }`}>
+                  {mintingId === 2 ? 'MINTING...' : mintResults[2] === 'error' ? 'RETRY' : '0.00034 ETH'}
+                </div>
+              </button>
+            )}
+            </>
+            )}
+          </div>
         )}
 
-        {/* MISSIONS TAB */}
-        {activeTab === 'missions' && (
-           <div className="space-y-4 pb-4">
-             {MISSIONS.map(mission => {
-               const { current, percent } = getProgress(mission);
-               const isCompleted = percent >= 100;
-               const rewardSkin = SKINS.find(s => s.id === mission.rewardId);
-               const tokenId = getBadgeTokenId(mission.id);
-               const isNftMission = tokenId !== null && mission.rewardType === 'badge';
+        {/* --- ACTIONS --- */}
+        <div 
+            className="space-y-3 relative z-10"
+            style={{
+                opacity: canInteract ? 1 : 0,
+                pointerEvents: canInteract ? 'auto' : 'none',
+                filter: canInteract ? 'none' : 'grayscale(100%)',
+                transition: 'opacity 0.5s ease-in, filter 0.5s ease-in'
+            }}
+        >
+          <button
+            onClick={onRestart}
+            className="w-full py-3 rounded-xl bg-neon-blue text-black font-black text-lg hover:scale-[1.02] active:scale-95 transition-all shadow-[0_0_20px_rgba(0,240,255,0.4)]"
+          >
+            🔄 PLAY AGAIN
+          </button>
+          
+          <div className="flex gap-3">
+            <button
+              onClick={onBackToMenu}
+              className="flex-1 py-3 rounded-xl bg-white/5 text-white font-bold text-sm border border-white/10 hover:bg-white/10 transition-colors"
+            >
+              ↩️ Menu
+            </button>
+            <button
+              onClick={onShare}
+              className={`flex-1 py-3 rounded-xl font-bold text-sm border transition-all flex items-center justify-center gap-2
+                ${isNewRecord 
+                  ? 'bg-purple-600 border-purple-400 text-white animate-pulse shadow-[0_0_15px_rgba(168,85,247,0.5)]' 
+                  : 'bg-transparent border-white/10 text-gray-300 hover:bg-white/5'
+                }`}
+            >
+              🚀 Share
+            </button>
+          </div>
+        </div>
 
-               return (
-                 <div key={mission.id} className={`relative p-4 rounded-xl border transition-all ${isCompleted ? 'bg-gradient-to-br from-green-900/20 to-black border-green-500/30' : 'bg-white/5 border-white/5'}`}>
-                   {/* Header */}
-                   <div className="flex justify-between items-start mb-3">
-                      <div>
-                         <div className="flex items-center gap-2 mb-1">
-                            <h3 className={`font-bold text-sm tracking-wide ${isCompleted ? 'text-green-400' : 'text-white'}`}>{mission.title}</h3>
-                            {mission.mode && <span className="text-[9px] uppercase px-1.5 py-0.5 rounded bg-black/40 text-gray-400 border border-white/10">{mission.mode === 'walls' ? 'Blitz' : mission.mode === 'chill' ? 'Zen' : 'Classic'}</span>}
-                         </div>
-                         <p className="text-xs text-gray-400 leading-tight">{mission.desc}</p>
-                      </div>
-                      
-                      {/* Reward Badge */}
-                      <div className="flex flex-col items-end gap-1">
-                         {rewardSkin && (
-                           <div className="flex items-center gap-1.5 bg-black/60 px-2 py-1 rounded border border-white/10">
-                              <div className="w-2 h-2 rounded-full shadow-[0_0_5px_currentColor]" style={{ background: rewardSkin.color[1], color: rewardSkin.color[1] }}></div>
-                              <span className="text-[10px] text-gray-300 font-bold">{rewardSkin.name}</span>
-                           </div>
-                         )}
-                         {/* 🔥 NAPRAWIONA SEKCJA MINT (Wagmi) 🔥 */}
-                         {isNftMission && (
-                             isCompleted ? (
-                               <>
-                                 {!walletClient ? (
-                                   <div className="flex items-center gap-1 bg-red-500/10 px-2 py-1 rounded border border-red-500/30 text-[10px] text-red-200">
-                                     ⚠️ Portfel niegotowy
-                                   </div>
-                                 ) : (
-                                 <>
-                                 {(() => {
-                                   const isPaidMint = tokenId === 2;
-                                   const hasEnoughBalance = !isPaidMint || (balanceLoaded && walletBalance >= PAID_MINT_PRICE);
-                                   return (
-                                     <>
-                                       <button
-                                           onClick={() => handleMint(tokenId)}
-                                           disabled={isMinting || (isPaidMint && !hasEnoughBalance)}
-                                           className={`text-black text-[10px] font-bold px-3 py-1.5 rounded shadow-[0_0_10px_rgba(0,240,255,0.4)] transition-all
-                                             ${(isMinting || (isPaidMint && !hasEnoughBalance)) ? 'bg-gray-400 cursor-not-allowed' : 'bg-gradient-to-r from-neon-blue to-cyan-300 hover:scale-105'}`}
-                                       >
-                                           {isMinting ? "MINTING..." : (isPaidMint ? "MINT (0.00034 ETH)" : "CLAIM FREE")}
-                                       </button>
-                                       {isPaidMint && !hasEnoughBalance && (
-                                         <div className="mt-1 text-[9px] text-red-400 text-right">
-                                           Not enough ETH
-                                         </div>
-                                       )}
-                                     </>
-                                   );
-                                 })()}
-                                 </>
-                                 )}
-                               </>
-                             ) : (
-                               <div className="flex items-center gap-1 bg-black/40 px-2 py-1 rounded border border-white/10 opacity-50">
-                                   <span className="text-[10px]">🔒 Locked</span>
-                               </div>
-                             )
-                         )}
-                      </div>
-                   </div>
+        <motion.p
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 1 }}
+          className="text-[10px] text-gray-500 mt-4"
+        >
+          💡 Tip: Grab magnets to collect apples from a distance!
+        </motion.p>
 
-                   {/* PROGRESS BAR */}
-                   <div className="relative pt-2">
-                      <div className="flex justify-between text-[10px] font-mono mb-1 text-gray-400">
-                          <span>Progress</span>
-                          <span className={isCompleted ? "text-green-400" : "text-white"}>{current} / {mission.target} ({percent}%)</span>
-                      </div>
-                      <div className="w-full h-3 bg-black/60 rounded-full overflow-hidden border border-white/10 shadow-inner">
-                         <motion.div 
-                           initial={{ width: 0 }} 
-                           animate={{ width: `${percent}%` }} 
-                           transition={{ duration: 1.5, ease: "easeOut" }} 
-                           className={`h-full relative ${isCompleted ? 'bg-gradient-to-r from-green-500 to-emerald-400 shadow-[0_0_10px_#10b981]' : 'bg-gradient-to-r from-yellow-600 to-yellow-400'}`}
-                         >
-                           {/* Błysk na pasku */}
-                           <div className="absolute top-0 right-0 bottom-0 w-2 bg-white/50 blur-sm transform skew-x-12"></div>
-                         </motion.div>
-                      </div>
-                   </div>
-                 </div>
-               )
-             })}
-           </div>
-        )}
-      </div>
-
-      <div className="p-4 border-t border-white/10 shrink-0 bg-black/40">
-         <button onClick={onClose} className="btn-secondary w-full py-3 text-sm hover:bg-white/10 border-white/20">Close Panel</button>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 };
-export default SkinMissionsPanel;
+
+export default GameOver;
