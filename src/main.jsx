@@ -1,4 +1,3 @@
-// src/main.jsx
 import { Buffer } from 'buffer';
 window.Buffer = Buffer;
 
@@ -21,13 +20,14 @@ import { QueryClientProvider, QueryClient } from "@tanstack/react-query";
 import { ThirdwebProvider } from "@thirdweb-dev/react";
 import { Base } from "@thirdweb-dev/chains"; 
 
-// 🔥 VCONSOLE - DEBUGOWANIE 🔥
-import VConsole from 'vconsole';
+// 🔥 KLUCZOWE: MiniKitProvider – musi być NAJWYŻEJ w tree
+import { MiniKitProvider } from '@farcaster/minikit';
 
-// Inicjalizacja vConsole (działa zawsze, nawet na produkcji)
+// 🔥 VCONSOLE - DEBUGOWANIE (zostawiamy)
+import VConsole from 'vconsole';
 const vConsole = new VConsole();
 
-const APP_NAME = 'Snake Neo Arena';
+const APP_NAME = 'Snake Neon Arena';
 const APP_ORIGIN = globalThis?.location?.origin || 'https://snake-neon-arena.vercel.app';
 const APP_LOGO_URL = `${APP_ORIGIN}/logo.png`;
 const WALLET_CONNECT_PROJECT_ID = import.meta.env.VITE_WALLET_CONNECT_PROJECT_ID || 'YOUR_PROJECT_ID';
@@ -54,11 +54,12 @@ const queryClient = new QueryClient();
 const thirdwebOptions = {
   readonlySettings: {
     chainId: 8453,
-    rpcUrl: "https://mainnet.base.org" 
+    rpcUrl: "https://mainnet.base.org"
   }
 };
 
 ReactDOM.createRoot(document.getElementById('root')).render(
+  <MiniKitProvider>  {/* ← TO JEST NAJWAŻNIEJSZE – musi być NAJWYŻEJ */}
     <ThirdwebProvider 
       activeChain={Base} 
       sdkOptions={thirdwebOptions}
@@ -71,4 +72,5 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         </QueryClientProvider>
       </WagmiProvider>
     </ThirdwebProvider>
+  </MiniKitProvider>
 );
