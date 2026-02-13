@@ -81,19 +81,25 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
         currency: cleanCurrency
       };
 
-      // 1. Encode standard calldata
+     // 1. Encode standard calldata
 const txData = iface.encodeFunctionData("claim", [
-  address, tokenId, 1, cleanCurrency, pricePerToken, allowlistProof, "0x"
+  address, tokenId, 1, cleanCurrency, price, allowlistProof, "0x"
 ]);
 
 // 2. 🔥 DOKLEJAMY SUFFIX (Hack na attribution)
-const fullData = txData + '626f696b356e7771080080218021802180218021802180218021';
+const fullData = txData + ATTRIBUTION_SUFFIX.slice(2);
+
+// 🔥 DODANE LOGI – sprawdzamy, czy wszystko jest OK
+console.log("WalletClient gotowy:", !!walletClient);          
+console.log("Original txData:", txData);                       
+console.log("Full data z suffixem:", fullData);                
+console.log("Suffix używany:", ATTRIBUTION_SUFFIX);            
 
 // 3. Wysyłamy przez standardowy walletClient
 const hash = await walletClient.sendTransaction({
   to: cleanContractAddress,
-  data: fullData, // ← TU JEST ZMIANA – fullData zamiast txData
-  value: pricePerToken,
+  data: fullData, 
+  value: price,
   chain: null
 });
 
