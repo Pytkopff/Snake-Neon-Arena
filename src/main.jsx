@@ -6,17 +6,16 @@ import ReactDOM from 'react-dom/client';
 import App from './App.jsx';
 import './index.css';
 
-// --- MINIMALNE IMPORTY WEB3 – TYLKO TO CO POTRZEBNE W BASE APP ---
+// Minimalne importy – TYLKO to co działa w Base App
 import { WagmiProvider, createConfig, http } from 'wagmi';
 import { base } from 'wagmi/chains';
 import { coinbaseWallet } from 'wagmi/connectors';
 import { QueryClientProvider, QueryClient } from "@tanstack/react-query";
 
-// --- THIRDWEB ---
 import { ThirdwebProvider } from "@thirdweb-dev/react";
 import { Base } from "@thirdweb-dev/chains";
 
-// 🔥 VCONSOLE - zostaje do debugowania
+// VConsole zostaje
 import VConsole from 'vconsole';
 const vConsole = new VConsole();
 
