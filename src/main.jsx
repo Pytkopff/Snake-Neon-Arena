@@ -21,8 +21,8 @@ import { QueryClientProvider, QueryClient } from "@tanstack/react-query";
 import { ThirdwebProvider } from "@thirdweb-dev/react";
 import { Base } from "@thirdweb-dev/chains";
 
-// --- IMPORTY PRIVY ---
-import { PrivyProvider } from '@privy-io/react-auth';
+// --- IMPORTY ONCHAINKIT ---
+import { OnchainKitProvider } from '@coinbase/onchainkit';
 
 // 🔥 VCONSOLE - DEBUGOWANIE 🔥
 import VConsole from 'vconsole';
@@ -62,14 +62,8 @@ const thirdwebOptions = {
 };
 
 ReactDOM.createRoot(document.getElementById('root')).render(
-  <PrivyProvider
-    appId={import.meta.env.VITE_PRIVY_APP_ID}
-    config={{
-      dataSuffix: {
-        value: '0x626f696b356e7771080080218021802180218021802180218021',
-        optional: true
-      }
-    }}
+  <OnchainKitProvider
+    chain={base}
   >
     <ThirdwebProvider
       activeChain={Base}
@@ -83,5 +77,5 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         </QueryClientProvider>
       </WagmiProvider>
     </ThirdwebProvider>
-  </PrivyProvider>
+  </OnchainKitProvider>
 );

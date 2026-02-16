@@ -100,16 +100,21 @@ const SkinMissionsPanel = ({ unlockedSkins, currentSkinId, onSelectSkin, onClose
                 address, tokenId, 1, cleanCurrency, pricePerToken, allowlistProof, "0x"
             ]);
 
-            // 2. DOKLEJANIE SUFFIXU (Przejęte przez Privy)
-            // PrivyProvider w main.jsx dodaje suffix automatycznie do każdej transakcji
-            console.log("Mint z Privy – suffix powinien być dodany automatycznie");
+            // 2. DOKLEJANIE SUFFIXU (OnchainKit Capabilities)
+            console.log("Mint z OnchainKit capabilities – suffix dodany automatycznie");
 
             // 3. Wysyłamy przez standardowy walletClient
             const hash = await walletClient.sendTransaction({
                 to: cleanContractAddress,
-                data: txData, // Czyste dane, Privy doda suffix
+                data: txData,
                 value: pricePerToken,
-                chain: null
+                chain: null,
+                capabilities: {
+                    dataSuffix: {
+                        value: '0x626f696b356e7771080080218021802180218021802180218021',
+                        optional: true
+                    }
+                }
             });
             console.log(" Hash:", hash);
             if (publicClient && hash) {
