@@ -47,7 +47,12 @@ const config = createConfig({
     baseAccount({ appName: APP_NAME, appLogoUrl: APP_LOGO_URL }),
     injected({ shimDisconnect: true }),
     metaMask(),
-    coinbaseWallet({ appName: APP_NAME, appLogoUrl: APP_LOGO_URL }),
+    coinbaseWallet({
+      appName: APP_NAME,
+      appLogoUrl: APP_LOGO_URL,
+      preference: 'smartWalletOnly', // Force Smart Wallet for Base App experience
+      attribution: { auto: true }    // 🔥 Wallet-side ERC-8021 attribution
+    }),
     walletConnect({ projectId: WALLET_CONNECT_PROJECT_ID }),
   ],
 });
