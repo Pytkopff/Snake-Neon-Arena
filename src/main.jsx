@@ -19,7 +19,10 @@ import { QueryClientProvider, QueryClient } from "@tanstack/react-query";
 
 // --- IMPORTY THIRDWEB ---
 import { ThirdwebProvider } from "@thirdweb-dev/react";
-import { Base } from "@thirdweb-dev/chains"; 
+import { Base } from "@thirdweb-dev/chains";
+
+// --- IMPORTY PRIVY ---
+import { PrivyProvider } from '@privy-io/react-auth';
 
 // 🔥 VCONSOLE - DEBUGOWANIE 🔥
 import VConsole from 'vconsole';
@@ -54,13 +57,22 @@ const queryClient = new QueryClient();
 const thirdwebOptions = {
   readonlySettings: {
     chainId: 8453,
-    rpcUrl: "https://mainnet.base.org" 
+    rpcUrl: "https://mainnet.base.org"
   }
 };
 
 ReactDOM.createRoot(document.getElementById('root')).render(
-    <ThirdwebProvider 
-      activeChain={Base} 
+  <PrivyProvider
+    appId={import.meta.env.VITE_PRIVY_APP_ID}
+    config={{
+      dataSuffix: {
+        value: '0x626f696b356e7771080080218021802180218021802180218021',
+        optional: true
+      }
+    }}
+  >
+    <ThirdwebProvider
+      activeChain={Base}
       sdkOptions={thirdwebOptions}
     >
       <WagmiProvider config={config}>
@@ -71,4 +83,5 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         </QueryClientProvider>
       </WagmiProvider>
     </ThirdwebProvider>
+  </PrivyProvider>
 );

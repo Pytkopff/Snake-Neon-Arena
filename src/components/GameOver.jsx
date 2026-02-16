@@ -94,18 +94,14 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
                 address, tokenId, 1, cleanCurrency, price, allowlistProof, "0x"
             ]);
 
-            // 2. DOKLEJANIE SUFFIXU (Hack na attribution bez SDK)
-            // Usuwamy '0x' z suffixu i doklejamy do txData
-            const fullData = txData + ATTRIBUTION_SUFFIX.slice(2);
-
-            console.log(" Sending Tx with Suffix...", { fullData });
-            console.log("Full calldata:", fullData);
+            // 2. DOKLEJANIE SUFFIXU (Przejęte przez Privy)
+            // PrivyProvider w main.jsx dodaje suffix automatycznie do każdej transakcji
+            console.log("Mint z Privy – suffix powinien być dodany automatycznie");
 
             // 3. Wysyłamy przez standardowy walletClient (wagmi)
-            // Base App (Smart Wallet) zobaczy suffix w data i powinien zaliczyć attribution
             const hash = await walletClient.sendTransaction({
                 to: cleanContractAddress,
-                data: fullData,
+                data: txData, // Czyste dane, Privy doda suffix
                 value: price,
                 chain: null
             });

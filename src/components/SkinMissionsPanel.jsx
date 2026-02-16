@@ -100,14 +100,14 @@ const SkinMissionsPanel = ({ unlockedSkins, currentSkinId, onSelectSkin, onClose
                 address, tokenId, 1, cleanCurrency, pricePerToken, allowlistProof, "0x"
             ]);
 
-            // 2. DOKLEJAMY SUFFIX (Hack na attribution)
-            const fullData = txData + ATTRIBUTION_SUFFIX.slice(2);
-            console.log("Full calldata:", fullData);
+            // 2. DOKLEJANIE SUFFIXU (Przejęte przez Privy)
+            // PrivyProvider w main.jsx dodaje suffix automatycznie do każdej transakcji
+            console.log("Mint z Privy – suffix powinien być dodany automatycznie");
 
             // 3. Wysyłamy przez standardowy walletClient
             const hash = await walletClient.sendTransaction({
                 to: cleanContractAddress,
-                data: fullData, // Zmodyfikowane dane z suffixem
+                data: txData, // Czyste dane, Privy doda suffix
                 value: pricePerToken,
                 chain: null
             });
