@@ -56,6 +56,7 @@ const config = createConfig({
     coinbaseWallet({
       appName: APP_NAME,
       appLogoUrl: APP_LOGO_URL,
+      version: '4',
     }),
     walletConnect({ projectId: WALLET_CONNECT_PROJECT_ID }),
   ],
