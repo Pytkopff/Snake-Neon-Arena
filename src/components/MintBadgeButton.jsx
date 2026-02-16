@@ -1,5 +1,5 @@
-import React, { useCallback } from 'react';
-import { useAccount, useSendTransaction, useWaitForTransactionReceipt, useChainId, useSwitchChain } from 'wagmi';
+import React, { useState } from 'react';
+import { useAccount, useSendTransaction, useWaitForTransactionReceipt, useChainId, useSwitchChain, useWalletClient } from 'wagmi';
 import { encodeFunctionData, parseEther, concatHex } from 'viem';
 
 // --- CONFIGURATION ---
@@ -8,7 +8,8 @@ const BADGE_ADDRESS = "0x720579D73BD6f9b16A4749D9D401f31ed9a418D7";
 const NATIVE_TOKEN = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
 const MAX_UINT256 = 115792089237316195423570985008687907853269984665640564039457584007913129639935n;
 
-// ERC-8021 Suffix
+// ERC-8021 Suffix / Marker
+// Full valid suffix for attribution
 const SUFFIX = '0x626f696b356e7771080080218021802180218021802180218021';
 
 // Minimal ABI
@@ -40,6 +41,16 @@ const BADGE_ABI = [
     }
 ];
 
+/**
+ * MintBadgeButton (Universal: EOA + AA)
+ * 
+ * Logic / How it works:
+ * 1. Checks for Smart Wallet support via `walletClient.sendCalls` (EIP-5792).
+ * 2. If supported (e.g. Coinbase Base App), uses `capabilities: { dataSuffix: ... }`.
+ *    - Wallet appends suffix AFTER `executeBatch` wrapper -> ✅ Green Checker.
+ * 3. If NOT supported or fails (e.g. MetaMask/EOA), falls back to `useSendTransaction`.
+ *    - Manually appends suffix via `concatHex` -> ✅ Green Checker (for EOA).
+ */
 export default function MintBadgeButton({
     tokenId,
     onSuccess,
@@ -49,40 +60,52 @@ export default function MintBadgeButton({
     disabled,
     children
 }) {
-    const { address, connector } = useAccount();
+    const { address } = useAccount();
     const chainId = useChainId();
     const { switchChainAsync } = useSwitchChain();
+    const { data: walletClient } = useWalletClient();
 
+    // State for tracking EIP-5792 call
+    const [callsId, setCallsId] = useState(null);
+    const [isCallsPending, setIsCallsPending] = useState(false);
+
+    // Wagmi Hook for EOA Fallback
     const {
-        data: hash,
+        data: txHash,
         sendTransaction,
-        isPending: isSending,
-        error: sendError
+        isPending: isTxPending,
+        error: txError
     } = useSendTransaction();
 
+    // Wait for Receipt (works for fallback hash)
     const {
         isLoading: isWaiting,
         isSuccess: isConfirmed
-    } = useWaitForTransactionReceipt({ hash });
+    } = useWaitForTransactionReceipt({ hash: txHash });
 
     React.useEffect(() => {
-        if (isConfirmed && hash) {
-            console.log("✅ Mint Success! Hash:", hash);
-            if (onSuccess) onSuccess(hash);
-
-            // Delay opening windows slightly
-            setTimeout(() => {
-                window.open(`https://basescan.org/tx/${hash}`, '_blank');
-                window.open(`https://builder-code-checker.vercel.app/?hash=${hash}`, '_blank');
-            }, 2000);
+        // Handle Success (Fallback Path)
+        if (isConfirmed && txHash) {
+            handleSuccess(txHash);
         }
-    }, [isConfirmed, hash, onSuccess]);
+    }, [isConfirmed, txHash]);
 
-    React.useEffect(() => {
-        if (sendError && onError) onError(sendError);
-    }, [sendError, onError]);
+    // Handler for success actions
+    const handleSuccess = (hashOrId) => {
+        console.log("✅ Mint Success! ID/Hash:", hashOrId);
+        if (onSuccess) onSuccess(hashOrId);
 
-    const handleMint = useCallback(async (e) => {
+        setTimeout(() => {
+            // If it's a long hash, assume it's a tx hash and open explorer
+            if (hashOrId.length > 40) {
+                window.open(`https://basescan.org/tx/${hashOrId}`, '_blank');
+            }
+            // Always try checker (might need hash if it was a batch ID, but likely hash for single op)
+            window.open(`https://builder-code-checker.vercel.app/`, '_blank');
+        }, 2000);
+    };
+
+    const handleMint = async (e) => {
         e?.stopPropagation();
 
         if (!address) {
@@ -91,12 +114,13 @@ export default function MintBadgeButton({
         }
 
         try {
+            // 0. Network Check
             if (chainId !== BASE_CHAIN_ID) {
                 try {
                     await switchChainAsync({ chainId: BASE_CHAIN_ID });
                 } catch (switchError) {
                     console.error("Failed to switch chain:", switchError);
-                    return;
+                    // Try to proceed, or return
                 }
             }
 
@@ -109,7 +133,7 @@ export default function MintBadgeButton({
                 currency: NATIVE_TOKEN
             };
 
-            // 1. Encode CLEAN calldata (args end with "0x" empty bytes)
+            // 1. Prepare CLEAN data (args end with "0x" empty bytes)
             const cleanData = encodeFunctionData({
                 abi: BADGE_ABI,
                 functionName: 'claim',
@@ -124,18 +148,50 @@ export default function MintBadgeButton({
                 ]
             });
 
-            console.log('Clean data (hex):', cleanData);
-            console.log('Clean data length (hex chars):', cleanData.length);
+            // --- PATH A: Smart Wallet (EIP-5792) ---
+            if (walletClient && walletClient.sendCalls) {
+                try {
+                    console.log('[MintBadge] 🚀 Trying EIP-5792 via dataSuffix capability (Smart Wallet Path)');
+                    console.log('[MintBadge] Suffix:', SUFFIX);
 
-            // 2. Append using concatHex (User's preferred method)
+                    setIsCallsPending(true);
+
+                    const id = await walletClient.sendCalls({
+                        calls: [{
+                            to: BADGE_ADDRESS,
+                            data: cleanData, // Clean data here! Suffix goes in capabilities.
+                            value: price
+                        }],
+                        capabilities: {
+                            dataSuffix: {
+                                value: SUFFIX,
+                                optional: true // Try to append, but don't fail hard if ignored (though we want it!)
+                            }
+                        }
+                    });
+
+                    console.log('[MintBadge] sendCalls successful. Bundle ID:', id);
+                    setCallsId(id);
+                    setIsCallsPending(false);
+                    handleSuccess(id);
+                    return; // EXIT if successful
+
+                } catch (err) {
+                    console.warn('[MintBadge] sendCalls failed or rejected. Falling back to EOA method.', err);
+                    setIsCallsPending(false);
+                    // Proceed to Path B
+                }
+            }
+
+            // --- PATH B: EOA (Manual Append) ---
+            console.log('[MintBadge] 🛠️ Fallback to EOA Manual Append');
+
             const fullData = concatHex([cleanData, SUFFIX]);
 
-            console.log('Full data (z suffixem):', fullData);
-            console.log('Ostatnie 32 znaki:', fullData.slice(-32));
+            console.log('Final data last 32:', fullData.slice(-32));
 
-            // VALIDATION
             if (fullData.slice(-32).toLowerCase() !== '80218021802180218021802180218021') {
-                alert('FATAL: Suffix nie jest na końcu! Coś poszło nie tak z append.');
+                alert('Local Validation Error: Suffix missing!');
                 return;
             }
 
@@ -146,33 +202,23 @@ export default function MintBadgeButton({
             });
 
         } catch (err) {
-            console.error("[MintBadge] Error:", err);
+            console.error("[MintBadge] Implementation Error:", err);
             if (onError) onError(err);
         }
-    }, [address, chainId, tokenId, priceETH, switchChainAsync, sendTransaction, onError]);
+    };
 
-    const isWorking = isSending || isWaiting;
-    const isSmartWallet = connector?.name?.includes("Coinbase") || connector?.id === 'coinbaseWalletSDK';
+    const isWorking = isCallsPending || isTxPending || isWaiting;
 
     return (
-        <div className="flex flex-col gap-2">
-            <button
-                onClick={handleMint}
-                disabled={disabled || isWorking}
-                className={className}
-            >
-                {typeof children === 'function'
-                    ? children({ isWorking, isSending, isWaiting, isConfirmed })
-                    : (children || (isWorking ? 'Minting...' : 'Mint Badge (Manual EOA)'))
-                }
-            </button>
-
-            {isSmartWallet && (
-                <p className="text-[10px] text-orange-400 text-center px-1">
-                    ⚠️ Uwaga: Smart Wallet wykryty. To może nie działać z checkerem.
-                    Dla 100% pewności użyj MetaMask/Rabby.
-                </p>
-            )}
-        </div>
+        <button
+            onClick={handleMint}
+            disabled={disabled || isWorking}
+            className={className}
+        >
+            {typeof children === 'function'
+                ? children({ isWorking, isSending: isWorking, isWaiting: isWaiting, isConfirmed: isConfirmed || !!callsId })
+                : (children || (isWorking ? 'Minting...' : 'Mint Badge (8021 – Universal)'))
+            }
+        </button>
     );
 };
