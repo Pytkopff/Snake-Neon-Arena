@@ -8,9 +8,13 @@ const BADGE_ADDRESS = "0x720579D73BD6f9b16A4749D9D401f31ed9a418D7";
 const NATIVE_TOKEN = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
 const MAX_UINT256 = 115792089237316195423570985008687907853269984665640564039457584007913129639935n;
 
-// CONSTANTS
-const SUFFIX_FULL = '0x626f696b356e7771080080218021802180218021802180218021'; // 26 bytes
-const MARKER_16_BYTES = '0x80218021802180218021802180218021'; // 16 bytes
+// ERC-8021 CONSTANTS
+const SUFFIX_RAW = '0x626f696b356e7771080080218021802180218021802180218021'; // 26 bytes
+// We need to align the suffix to 32 bytes to prevent ABI encoders from adding trailing zeros
+// 32 - 26 = 6 bytes of padding needed.
+// We prepend 6 bytes of zeros (`00` * 6 = 12 chars).
+const PREFIX_PADDING = '0x000000000000';
+const ALIGNED_SUFFIX_32_BYTES = concatHex([PREFIX_PADDING, SUFFIX_RAW]);
 
 // Minimal ABI
 const BADGE_ABI = [
@@ -90,7 +94,6 @@ export default function MintBadgeButton({
     const handleMint = async (e) => {
         e?.stopPropagation();
         if (!address) return;
-
         setErrorMessage(null);
 
         try {
@@ -108,32 +111,35 @@ export default function MintBadgeButton({
                 args: [address, BigInt(tokenId), 1n, NATIVE_TOKEN, price, allowlistProof, "0x"]
             });
 
-            // Detect Coinbase Smart Wallet
+            // --- LOGIC: ALIGNED SUFFIX ---
+            // We manually append a 32-byte aligned suffix to the INTERNAL calldata.
+            // This prevents ABI encoders (in Smart Wallets) from adding trailing zero-padding.
+            // Result: The ERC-8021 marker stays at the very end of the UserOperation calldata.
+
+            console.log('[MintBadge] 📏 Using 32-byte Aligned Suffix strategy');
+            console.log('[MintBadge] Suffix Raw:', SUFFIX_RAW);
+            console.log('[MintBadge] Aligned Suffix (32b):', ALIGNED_SUFFIX_32_BYTES);
+
+            const fullData = concatHex([cleanData, ALIGNED_SUFFIX_32_BYTES]);
+
             const isSmartWallet = connector?.id === 'coinbaseWalletSDK' || connector?.name === 'Coinbase Wallet';
 
-            // --- PATH A: AGGRESSIVE SMART WALLET ATTRIBUTION ---
             if (isSmartWallet && walletClient && walletClient.sendCalls) {
                 try {
-                    console.log('[MintBadge] 🚀 Sending via walletClient.sendCalls (EIP-5792)');
-                    console.log('[MintBadge] enforcing dataSuffix capability');
+                    console.log('[MintBadge] 🚀 Sending via walletClient.sendCalls');
 
                     setIsCallsPending(true);
 
-                    // AGGRESSIVE: Append full suffix to internal data too (safeguard)
-                    const internalDataWithSuffix = concatHex([cleanData, SUFFIX_FULL]);
+                    // We send the 'fullData' (internal append) directly.
+                    // We DO NOT use capabilities here, because "manual internal" is safer 
+                    // once we handle the padding issue.
 
                     const id = await walletClient.sendCalls({
                         calls: [{
                             to: BADGE_ADDRESS,
-                            data: internalDataWithSuffix, // Internal append
+                            data: fullData,
                             value: price
-                        }],
-                        capabilities: {
-                            dataSuffix: {
-                                value: MARKER_16_BYTES, // External append (Marker only)
-                                optional: false // FORCE IT
-                            }
-                        }
+                        }]
                     });
 
                     console.log('[MintBadge] sendCalls successful. ID:', id);
@@ -145,32 +151,17 @@ export default function MintBadgeButton({
                     return;
 
                 } catch (err) {
-                    console.warn('[MintBadge] sendCalls attempt failed. Trying fallback...', err);
+                    console.warn('[MintBadge] sendCalls failed. Fallback...', err);
                     setIsCallsPending(false);
-                    // Fall through to Path B
                 }
             }
 
-            // --- PATH B: STANDARD / EOA ---
-            // Wagmi global config should handle suffix, but we can double-check
-            // or just send standard tx. 
-            // User reported that global config alone had mixed results, 
-            // but for EOA manual works best.
+            // Fallback EOA
+            console.log('[MintBadge] 🛠️ Sending via standard sendTransaction (Manual Aligned Append)');
 
-            console.log('[MintBadge] 🛠️ Sending via standard sendTransaction');
-
-            // We rely on Global Config for suffix here (as per Step 394 request simplified logic)
-            // BUT if we want to be paranoid and ensure EOA works:
-            // Let's manually append if we are not smart wallet?
-            // No, user's last request was "Simplified MintBadgeButton".
-            // But now "Checker is red".
-            // For EOA, "Global Only" (Step 394) was deployed. User says "Rabby... sukces".
-            // So EOA path is FINE with global config.
-
-            // Just use standard call.
             sendTransaction({
                 to: BADGE_ADDRESS,
-                data: cleanData, // Wagmi + Main.jsx Global Suffix handles this
+                data: fullData, // Using the aligned suffix here too, safe for EOA as well.
                 value: price,
             });
 
@@ -184,7 +175,6 @@ export default function MintBadgeButton({
 
     const isWorking = isCallsPending || isTxPending || isWaiting;
 
-    // UI Render
     if (successHash) {
         const displayHash = typeof successHash === 'string' ? successHash : 'Bundle Sent';
         const isTxHash = typeof successHash === 'string' && successHash.startsWith('0x') && successHash.length === 66;
@@ -228,7 +218,7 @@ export default function MintBadgeButton({
             >
                 {typeof children === 'function'
                     ? children({ isWorking, isSending: isWorking, isWaiting: isWaiting, isConfirmed: !!successHash })
-                    : (children || (isWorking ? 'Minting...' : 'Mint Badge (Attribution Fix)'))
+                    : (children || (isWorking ? 'Minting...' : 'Mint Badge (32b Fix)'))
                 }
             </button>
             {errorMessage && (
