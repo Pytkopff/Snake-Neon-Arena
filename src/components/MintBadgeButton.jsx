@@ -9,8 +9,17 @@ const BADGE_ADDRESS = "0x720579D73BD6f9b16A4749D9D401f31ed9a418D7";
 const NATIVE_TOKEN = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
 const MAX_UINT256 = 115792089237316195423570985008687907853269984665640564039457584007913129639935n;
 
-// GENERATE SUFFIX (Full)
+// SUFFIX GENERATION
+// Standard Suffix: ~26 bytes
 const DATA_SUFFIX = Attribution.toDataSuffix({ codes: ['boik5nwq'] });
+
+// PADDING STRATEGY
+// We want the final data to be a multiple of 32 bytes so the bundler doesn't add trailing zeros.
+// Suffix is 26 bytes. We need 6 bytes of padding.
+// We align it by PREPENDING 6 bytes of zeros to the suffix.
+// Result: [00 00 00 00 00 00][SUFFIX (26)] = 32 bytes.
+const PADDING = '0x000000000000';
+const ALIGNED_SUFFIX = concatHex([PADDING, DATA_SUFFIX]);
 
 const BADGE_ABI = [
     {
@@ -72,7 +81,7 @@ export default function MintBadgeButton({
 
     React.useEffect(() => {
         if (isConfirmed && txHash) {
-            console.log("✅ Mint Success (EOA Full Suffix)", txHash);
+            console.log("✅ Mint Success (Safe Manual)", txHash);
             setSuccessHash(txHash);
             if (onSuccess) onSuccess(txHash);
         }
@@ -106,54 +115,26 @@ export default function MintBadgeButton({
                 args: [address, BigInt(tokenId), 1n, NATIVE_TOKEN, price, allowlistProof, "0x"]
             });
 
+            // --- LOGIC: MANUAL ALIGNED APPEND ---
+            // We manually append the 32-byte aligned suffix.
+            // EOA: Works fine.
+            // Smart Wallet: Should avoid trailing zeros from bundler padding.
+
+            const fullData = concatHex([cleanData, ALIGNED_SUFFIX]);
+
             const isSmartWallet = connector?.id === 'coinbaseWalletSDK' || connector?.name === 'Coinbase Wallet';
 
-            // --- PATH A: Manual sendCalls with Explicit Capability (Full Suffix) ---
-            if (isSmartWallet && walletClient && walletClient.sendCalls) {
-                try {
-                    console.log('[MintBadge] 🚀 Sending via walletClient.sendCalls (EIP-5792)');
-                    console.log('[MintBadge] Suffix:', DATA_SUFFIX);
+            // NOTE: We SKIP sendCalls for now because without version:4 it might be flaky,
+            // and with version:4 it crashes the app.
+            // We rely on standard sendTransaction with MANUAL DATA manipulation.
+            // This is the most "low level" we can get without breaking connectors.
 
-                    setIsCallsPending(true);
-
-                    // We do NOT modify internal data. We trust the capability.
-                    const id = await walletClient.sendCalls({
-                        calls: [{
-                            to: BADGE_ADDRESS,
-                            data: cleanData,
-                            value: price
-                        }],
-                        capabilities: {
-                            dataSuffix: {
-                                value: DATA_SUFFIX, // Explicitly pass the full suffix hex
-                            }
-                        }
-                    });
-
-                    console.log('[MintBadge] sendCalls successful. ID:', id);
-
-                    let idAsString = typeof id === 'object' ? (id.id || JSON.stringify(id)) : String(id);
-                    setSuccessHash(idAsString);
-                    setIsCallsPending(false);
-                    if (onSuccess) onSuccess(idAsString);
-                    return;
-
-                } catch (err) {
-                    console.warn('[MintBadge] sendCalls failed. Fallback to standard...', err);
-                    setIsCallsPending(false);
-                }
-            }
-
-            // --- PATH B: EOA Fallback ---
-            // For EOA, manual append is the safest bet to ensure the data is there
-            // regardless of global config quirks.
-            console.log('[MintBadge] 🛠️ Sending via standard sendTransaction (Manual Full Suffix)');
-
-            const dataWithSuffix = concatHex([cleanData, DATA_SUFFIX]);
+            console.log('[MintBadge] 🛠️ Sending via standard sendTransaction (Manual 32b Aligned)');
+            console.log('[MintBadge] Suffix Hex:', ALIGNED_SUFFIX);
 
             sendTransaction({
                 to: BADGE_ADDRESS,
-                data: dataWithSuffix,
+                data: fullData,
                 value: price,
             });
 
@@ -210,7 +191,7 @@ export default function MintBadgeButton({
             >
                 {typeof children === 'function'
                     ? children({ isWorking, isSending: isWorking, isWaiting: isWaiting, isConfirmed: !!successHash })
-                    : (children || (isWorking ? 'Minting...' : 'Mint Badge (Explicit Cap)'))
+                    : (children || (isWorking ? 'Minting...' : 'Mint Badge (Fixed)'))
                 }
             </button>
             {errorMessage && (
