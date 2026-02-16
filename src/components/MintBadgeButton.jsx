@@ -63,6 +63,7 @@ export default function MintBadgeButton({
     const [callsId, setCallsId] = useState(null);
     const [isCallsPending, setIsCallsPending] = useState(false);
     const [successHash, setSuccessHash] = useState(null); // For UI display
+    const [errorMessage, setErrorMessage] = useState(null);
 
     // Fallback (EOA) Hooks
     const {
@@ -72,6 +73,7 @@ export default function MintBadgeButton({
         error: txError
     } = useSendTransaction();
 
+    // Handle transaction confirmation for EOA
     const {
         isLoading: isWaiting,
         isSuccess: isConfirmed
@@ -86,17 +88,23 @@ export default function MintBadgeButton({
     }, [isConfirmed, txHash, onSuccess]);
 
     React.useEffect(() => {
-        if (txError && onError) onError(txError);
+        if (txError) {
+            console.error("Tx Error", txError);
+            setErrorMessage(txError.message || "Transakcja nieudana");
+            if (onError) onError(txError);
+        }
     }, [txError, onError]);
 
     const handleMint = async (e) => {
         e?.stopPropagation();
         if (!address) return;
 
+        setErrorMessage(null); // Clear errors
+
         try {
             if (chainId !== BASE_CHAIN_ID) {
                 try { await switchChainAsync({ chainId: BASE_CHAIN_ID }); }
-                catch (e) { console.error(e); }
+                catch (e) { console.error(e); } // Try to proceed even if switch fails/cancels
             }
 
             const price = parseEther(priceETH.toString());
@@ -111,6 +119,8 @@ export default function MintBadgeButton({
 
             // --- STRATEGY 1: Smart Wallet (Capability) ---
             // Requirement: EXACTLY 16 bytes marker in capability for Coinbase Smart Wallet.
+            let smartWalletPathFailed = false;
+
             if (walletClient && walletClient.sendCalls) {
                 try {
                     console.log('[MintBadge] 🚀 Trying EIP-5792 via dataSuffix capability');
@@ -119,7 +129,8 @@ export default function MintBadgeButton({
 
                     setIsCallsPending(true);
 
-                    const id = await walletClient.sendCalls({
+                    // NOTE: return value can be a string ID or an object depending on wallet implementation
+                    const sendCallsResult = await walletClient.sendCalls({
                         calls: [{
                             to: BADGE_ADDRESS,
                             data: cleanData,
@@ -132,27 +143,46 @@ export default function MintBadgeButton({
                         }
                     });
 
-                    console.log('[MintBadge] sendCalls successful. Bundle ID:', id);
-                    setCallsId(id);
-                    setSuccessHash(id); // Use ID as hash/identifier for now
+                    console.log('[MintBadge] sendCalls successful. Result:', sendCallsResult);
+
+                    // Handle ID safely
+                    let idAsString = null;
+                    if (typeof sendCallsResult === 'string') {
+                        idAsString = sendCallsResult;
+                    } else if (typeof sendCallsResult === 'object' && sendCallsResult !== null) {
+                        // Try to find a meaningful ID, e.g. sendCallsResult.id
+                        idAsString = sendCallsResult.id || JSON.stringify(sendCallsResult);
+                    } else {
+                        idAsString = String(sendCallsResult);
+                    }
+
+                    setCallsId(idAsString);
+                    setSuccessHash(idAsString);
                     setIsCallsPending(false);
-                    if (onSuccess) onSuccess(id);
-                    return;
+                    if (onSuccess) onSuccess(idAsString);
+                    return; // EXIT Strategy 1 Success
 
                 } catch (err) {
-                    console.warn('[MintBadge] sendCalls failed. Falling back to EOA manual append.', err);
+                    console.warn('[MintBadge] sendCalls failed/unsupported. Falling back to EOA.', err);
+                    smartWalletPathFailed = true;
                     setIsCallsPending(false);
+                    // Fall through to Strategy 2
                 }
             }
 
             // --- STRATEGY 2: EOA Fallback (Manual Append) ---
-            // Requirement: FULL suffix manually concatenated.
+            // Only execute if we didn't succeed with Strategy 1
             console.log('[MintBadge] 🛠️ Fallback to EOA manual append');
             console.log('[MintBadge] Suffix:', SUFFIX_FULL);
 
             const fullData = concatHex([cleanData, SUFFIX_FULL]);
 
-            console.log('[MintBadge] Final data last 32:', fullData.slice(-32));
+            // SAFE LOGGING (Fix for slice crash)
+            if (typeof fullData === 'string') {
+                console.log('[MintBadge] Final data last 32:', fullData.slice(-32));
+            } else {
+                console.warn('[MintBadge] fullData is not a string?!', fullData);
+            }
 
             sendTransaction({
                 to: BADGE_ADDRESS,
@@ -161,8 +191,10 @@ export default function MintBadgeButton({
             });
 
         } catch (err) {
-            console.error("[MintBadge] Error:", err);
+            console.error("[MintBadge] Global Error:", err);
+            setErrorMessage(err.message || "Błąd wykonania");
             if (onError) onError(err);
+            setIsCallsPending(false);
         }
     };
 
@@ -171,37 +203,60 @@ export default function MintBadgeButton({
     // --- UI RENDER ---
 
     if (successHash) {
+        // Safe verify hash is string for UI display
+        const displayHash = typeof successHash === 'string' ? successHash : 'Bundle Sent';
+
+        // Determine if it looks like a standard Tx Hash (0x + 64 hex chars)
+        const isTxHash = typeof successHash === 'string' && successHash.startsWith('0x') && successHash.length === 66;
+
         return (
             <div className="flex flex-col gap-2 p-2 bg-green-900/40 border border-green-500/50 rounded-lg">
                 <div className="text-green-400 font-bold text-sm text-center">✅ MINT SUKCES!</div>
-                <div className="text-[10px] text-gray-400 text-center break-all">{successHash.slice(0, 10)}...</div>
+                <div className="text-[10px] text-gray-400 text-center break-all">{displayHash.slice(0, 10)}...</div>
 
-                <div className="flex gap-2 justify-center">
-                    <a href={`https://basescan.org/tx/${successHash}`}
-                        target="_blank" rel="noopener noreferrer"
-                        className="px-2 py-1 bg-blue-600 text-white text-[10px] rounded hover:bg-blue-500">
-                        Basescan
-                    </a>
-                    <a href={`https://builder-code-checker.vercel.app/?hash=${successHash}`}
-                        target="_blank" rel="noopener noreferrer"
-                        className="px-2 py-1 bg-purple-600 text-white text-[10px] rounded hover:bg-purple-500">
-                        Sprawdź Checker
-                    </a>
+                <div className="flex gap-2 justify-center flex-wrap">
+                    {isTxHash && (
+                        <a href={`https://basescan.org/tx/${successHash}`}
+                            target="_blank" rel="noopener noreferrer"
+                            className="px-2 py-1 bg-blue-600 text-white text-[10px] rounded hover:bg-blue-500">
+                            Basescan
+                        </a>
+                    )}
+                    {isTxHash && (
+                        <a href={`https://builder-code-checker.vercel.app/?hash=${successHash}`}
+                            target="_blank" rel="noopener noreferrer"
+                            className="px-2 py-1 bg-purple-600 text-white text-[10px] rounded hover:bg-purple-500">
+                            Sprawdź Checker
+                        </a>
+                    )}
+                    {/* Copy button works for everything */}
+                    <button
+                        onClick={() => { navigator.clipboard.writeText(String(successHash)); alert('Skopiowano!'); }}
+                        className="px-2 py-1 bg-gray-600 text-white text-[10px] rounded hover:bg-gray-500">
+                        Kopiuj ID
+                    </button>
                 </div>
             </div>
         );
     }
 
     return (
-        <button
-            onClick={handleMint}
-            disabled={disabled || isWorking}
-            className={className}
-        >
-            {typeof children === 'function'
-                ? children({ isWorking, isSending: isWorking, isWaiting: isWaiting, isConfirmed: !!successHash })
-                : (children || (isWorking ? 'Minting...' : 'Mint Badge (8021 Fix)'))
-            }
-        </button>
+        <div className="flex flex-col gap-2">
+            <button
+                onClick={handleMint}
+                disabled={disabled || isWorking}
+                className={className}
+            >
+                {typeof children === 'function'
+                    ? children({ isWorking, isSending: isWorking, isWaiting: isWaiting, isConfirmed: !!successHash })
+                    : (children || (isWorking ? 'Minting...' : 'Mint Badge (8021 Fix)'))
+                }
+            </button>
+            {errorMessage && (
+                <div className="text-red-400 text-[10px] text-center px-1 break-words">
+                    {errorMessage.slice(0, 100)}
+                </div>
+            )}
+        </div>
     );
 };
