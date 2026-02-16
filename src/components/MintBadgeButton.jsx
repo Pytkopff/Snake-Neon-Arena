@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { useAccount, useSendTransaction, useWaitForTransactionReceipt, useChainId, useSwitchChain, useWalletClient } from 'wagmi';
 import { encodeFunctionData, parseEther, concatHex } from 'viem';
+// We don't need to import Attribution here for the suffix string if we use constants, 
+// but we can log the logic.
 
 // --- CONFIGURATION ---
 const BASE_CHAIN_ID = 8453;
@@ -9,11 +11,7 @@ const NATIVE_TOKEN = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
 const MAX_UINT256 = 115792089237316195423570985008687907853269984665640564039457584007913129639935n;
 
 // ERC-8021 CONSTANTS
-// 1. Full suffix for EOA (Manual Append) - Contains builder code + marker
 const SUFFIX_FULL = '0x626f696b356e7771080080218021802180218021802180218021';
-
-// 2. Exact 16-byte marker for Smart Wallet Capability (Base App Requirement)
-// Coinbase Smart Wallet ignores suffixes > 16 bytes in capabilities.
 const MARKER_16_BYTES = '0x80218021802180218021802180218021';
 
 // Minimal ABI
@@ -45,6 +43,19 @@ const BADGE_ABI = [
     }
 ];
 
+/**
+ * MintBadgeButton with Hybrid ERC-8021 Attribution
+ * 
+ * Strategy:
+ * 1. Global `dataSuffix` configured in wagmi config (via ox/erc8021).
+ *    - This helps standard auto-attribution where supported.
+ * 2. Smart Wallet (Base App) specific fix:
+ *    - Uses `sendCalls` with `capabilities`.
+ *    - Passes ONLY the 16-byte marker (`0x8021...`) because longer suffixes are ignored by Coinbase Smart Wallet.
+ * 3. EOA Fallback (MetaMask/Rabby):
+ *    - Uses `sendTransaction`.
+ *    - Manually appends the FULL suffix (`0x626f...`) effectively double-patching if global fails, ensuring green checker.
+ */
 export default function MintBadgeButton({
     tokenId,
     onSuccess,
@@ -62,7 +73,7 @@ export default function MintBadgeButton({
     // State
     const [callsId, setCallsId] = useState(null);
     const [isCallsPending, setIsCallsPending] = useState(false);
-    const [successHash, setSuccessHash] = useState(null); // For UI display
+    const [successHash, setSuccessHash] = useState(null);
     const [errorMessage, setErrorMessage] = useState(null);
 
     // Fallback (EOA) Hooks
@@ -73,7 +84,6 @@ export default function MintBadgeButton({
         error: txError
     } = useSendTransaction();
 
-    // Handle transaction confirmation for EOA
     const {
         isLoading: isWaiting,
         isSuccess: isConfirmed
@@ -81,7 +91,7 @@ export default function MintBadgeButton({
 
     React.useEffect(() => {
         if (isConfirmed && txHash) {
-            console.log("✅ Mint Confirm Success (EOA fallback)", txHash);
+            console.log("✅ Mint Confirm Success (EOA switch)", txHash);
             setSuccessHash(txHash);
             if (onSuccess) onSuccess(txHash);
         }
@@ -99,12 +109,12 @@ export default function MintBadgeButton({
         e?.stopPropagation();
         if (!address) return;
 
-        setErrorMessage(null); // Clear errors
+        setErrorMessage(null);
 
         try {
             if (chainId !== BASE_CHAIN_ID) {
                 try { await switchChainAsync({ chainId: BASE_CHAIN_ID }); }
-                catch (e) { console.error(e); } // Try to proceed even if switch fails/cancels
+                catch (e) { console.error(e); }
             }
 
             const price = parseEther(priceETH.toString());
@@ -117,19 +127,15 @@ export default function MintBadgeButton({
                 args: [address, BigInt(tokenId), 1n, NATIVE_TOKEN, price, allowlistProof, "0x"]
             });
 
-            // --- STRATEGY 1: Smart Wallet (Capability) ---
-            // Requirement: EXACTLY 16 bytes marker in capability for Coinbase Smart Wallet.
-            let smartWalletPathFailed = false;
-
+            // --- STRATEGY 1: Smart Wallet (Capability + 16-byte Marker) ---
             if (walletClient && walletClient.sendCalls) {
                 try {
                     console.log('[MintBadge] 🚀 Trying EIP-5792 via dataSuffix capability');
                     console.log('[MintBadge] Using 16-byte marker for Coinbase Smart Wallet compatibility');
-                    console.log('[MintBadge] Capabilities dataSuffix value:', MARKER_16_BYTES);
+                    console.log('[MintBadge] Marker:', MARKER_16_BYTES);
 
                     setIsCallsPending(true);
 
-                    // NOTE: return value can be a string ID or an object depending on wallet implementation
                     const sendCallsResult = await walletClient.sendCalls({
                         calls: [{
                             to: BADGE_ADDRESS,
@@ -138,19 +144,18 @@ export default function MintBadgeButton({
                         }],
                         capabilities: {
                             dataSuffix: {
-                                value: MARKER_16_BYTES // <--- 16 bytes ONLY
+                                value: MARKER_16_BYTES, // <--- 16 bytes ONLY
+                                optional: true
                             }
                         }
                     });
 
                     console.log('[MintBadge] sendCalls successful. Result:', sendCallsResult);
 
-                    // Handle ID safely
                     let idAsString = null;
                     if (typeof sendCallsResult === 'string') {
                         idAsString = sendCallsResult;
                     } else if (typeof sendCallsResult === 'object' && sendCallsResult !== null) {
-                        // Try to find a meaningful ID, e.g. sendCallsResult.id
                         idAsString = sendCallsResult.id || JSON.stringify(sendCallsResult);
                     } else {
                         idAsString = String(sendCallsResult);
@@ -160,28 +165,22 @@ export default function MintBadgeButton({
                     setSuccessHash(idAsString);
                     setIsCallsPending(false);
                     if (onSuccess) onSuccess(idAsString);
-                    return; // EXIT Strategy 1 Success
+                    return;
 
                 } catch (err) {
                     console.warn('[MintBadge] sendCalls failed/unsupported. Falling back to EOA.', err);
-                    smartWalletPathFailed = true;
                     setIsCallsPending(false);
-                    // Fall through to Strategy 2
                 }
             }
 
-            // --- STRATEGY 2: EOA Fallback (Manual Append) ---
-            // Only execute if we didn't succeed with Strategy 1
+            // --- STRATEGY 2: EOA Fallback (Manual Full Suffix) ---
             console.log('[MintBadge] 🛠️ Fallback to EOA manual append');
             console.log('[MintBadge] Suffix:', SUFFIX_FULL);
 
             const fullData = concatHex([cleanData, SUFFIX_FULL]);
 
-            // SAFE LOGGING (Fix for slice crash)
             if (typeof fullData === 'string') {
                 console.log('[MintBadge] Final data last 32:', fullData.slice(-32));
-            } else {
-                console.warn('[MintBadge] fullData is not a string?!', fullData);
             }
 
             sendTransaction({
@@ -201,12 +200,8 @@ export default function MintBadgeButton({
     const isWorking = isCallsPending || isTxPending || isWaiting;
 
     // --- UI RENDER ---
-
     if (successHash) {
-        // Safe verify hash is string for UI display
         const displayHash = typeof successHash === 'string' ? successHash : 'Bundle Sent';
-
-        // Determine if it looks like a standard Tx Hash (0x + 64 hex chars)
         const isTxHash = typeof successHash === 'string' && successHash.startsWith('0x') && successHash.length === 66;
 
         return (
@@ -226,14 +221,13 @@ export default function MintBadgeButton({
                         <a href={`https://builder-code-checker.vercel.app/?hash=${successHash}`}
                             target="_blank" rel="noopener noreferrer"
                             className="px-2 py-1 bg-purple-600 text-white text-[10px] rounded hover:bg-purple-500">
-                            Sprawdź Checker
+                            Checker
                         </a>
                     )}
-                    {/* Copy button works for everything */}
                     <button
                         onClick={() => { navigator.clipboard.writeText(String(successHash)); alert('Skopiowano!'); }}
                         className="px-2 py-1 bg-gray-600 text-white text-[10px] rounded hover:bg-gray-500">
-                        Kopiuj ID
+                        Kopiuj
                     </button>
                 </div>
             </div>
@@ -249,7 +243,7 @@ export default function MintBadgeButton({
             >
                 {typeof children === 'function'
                     ? children({ isWorking, isSending: isWorking, isWaiting: isWaiting, isConfirmed: !!successHash })
-                    : (children || (isWorking ? 'Minting...' : 'Mint Badge (8021 Fix)'))
+                    : (children || (isWorking ? 'Minting...' : 'Mint Badge (8021 Hybrid)'))
                 }
             </button>
             {errorMessage && (

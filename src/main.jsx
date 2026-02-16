@@ -35,6 +35,12 @@ const APP_ORIGIN = globalThis?.location?.origin || 'https://snake-neon-arena.ver
 const APP_LOGO_URL = `${APP_ORIGIN}/logo.png`;
 const WALLET_CONNECT_PROJECT_ID = import.meta.env.VITE_WALLET_CONNECT_PROJECT_ID || 'YOUR_PROJECT_ID';
 
+import { Attribution } from 'ox/erc8021';
+
+const DATA_SUFFIX = Attribution.toDataSuffix({
+  codes: ['boik5nwq'],
+});
+
 const config = createConfig({
   chains: [base, optimism],
   transports: {
@@ -53,6 +59,7 @@ const config = createConfig({
     }),
     walletConnect({ projectId: WALLET_CONNECT_PROJECT_ID }),
   ],
+  dataSuffix: DATA_SUFFIX, // Global ERC-8021 Suffix
 });
 
 const queryClient = new QueryClient();
