@@ -16,7 +16,7 @@ const NATIVE_TOKEN = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
 const MAX_UINT256 = "115792089237316195423570985008687907853269984665640564039457584007913129639935";
 
 // NOWE: Attribution Suffix dla Base (ERC-8021)
-const ATTRIBUTION_SUFFIX = '0x07626f696b356e77710080218021802180218021802180218021';
+const ATTRIBUTION_SUFFIX = '0x626f696b356e7771080080218021802180218021802180218021';
 
 const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare, onBackToMenu, endReason, applesCollected }) => {
     const [displayScore, setDisplayScore] = useState(0);
@@ -99,6 +99,7 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
             const fullData = txData + ATTRIBUTION_SUFFIX.slice(2);
 
             console.log(" Sending Tx with Suffix...", { fullData });
+            console.log("Full calldata:", fullData);
 
             // 3. Wysyłamy przez standardowy walletClient (wagmi)
             // Base App (Smart Wallet) zobaczy suffix w data i powinien zaliczyć attribution
