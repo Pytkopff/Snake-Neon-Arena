@@ -50,7 +50,6 @@ const config = createConfig({
     coinbaseWallet({
       appName: APP_NAME,
       appLogoUrl: APP_LOGO_URL,
-      preference: 'smartWalletOnly', // Force Smart Wallet for Base App experience
     }),
     walletConnect({ projectId: WALLET_CONNECT_PROJECT_ID }),
   ],
