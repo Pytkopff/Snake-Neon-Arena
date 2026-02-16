@@ -8,9 +8,13 @@ const BADGE_ADDRESS = "0x720579D73BD6f9b16A4749D9D401f31ed9a418D7";
 const NATIVE_TOKEN = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
 const MAX_UINT256 = 115792089237316195423570985008687907853269984665640564039457584007913129639935n;
 
-// ERC-8021 Suffix / Marker
-// Full valid suffix for attribution
-const SUFFIX = '0x626f696b356e7771080080218021802180218021802180218021';
+// ERC-8021 CONSTANTS
+// 1. Full suffix for EOA (Manual Append) - Contains builder code + marker
+const SUFFIX_FULL = '0x626f696b356e7771080080218021802180218021802180218021';
+
+// 2. Exact 16-byte marker for Smart Wallet Capability (Base App Requirement)
+// Coinbase Smart Wallet ignores suffixes > 16 bytes in capabilities.
+const MARKER_16_BYTES = '0x80218021802180218021802180218021';
 
 // Minimal ABI
 const BADGE_ABI = [
@@ -41,16 +45,6 @@ const BADGE_ABI = [
     }
 ];
 
-/**
- * MintBadgeButton (Universal: EOA + AA)
- * 
- * Logic / How it works:
- * 1. Checks for Smart Wallet support via `walletClient.sendCalls` (EIP-5792).
- * 2. If supported (e.g. Coinbase Base App), uses `capabilities: { dataSuffix: ... }`.
- *    - Wallet appends suffix AFTER `executeBatch` wrapper -> ✅ Green Checker.
- * 3. If NOT supported or fails (e.g. MetaMask/EOA), falls back to `useSendTransaction`.
- *    - Manually appends suffix via `concatHex` -> ✅ Green Checker (for EOA).
- */
 export default function MintBadgeButton({
     tokenId,
     onSuccess,
@@ -65,11 +59,12 @@ export default function MintBadgeButton({
     const { switchChainAsync } = useSwitchChain();
     const { data: walletClient } = useWalletClient();
 
-    // State for tracking EIP-5792 call
+    // State
     const [callsId, setCallsId] = useState(null);
     const [isCallsPending, setIsCallsPending] = useState(false);
+    const [successHash, setSuccessHash] = useState(null); // For UI display
 
-    // Wagmi Hook for EOA Fallback
+    // Fallback (EOA) Hooks
     const {
         data: txHash,
         sendTransaction,
@@ -77,123 +72,87 @@ export default function MintBadgeButton({
         error: txError
     } = useSendTransaction();
 
-    // Wait for Receipt (works for fallback hash)
     const {
         isLoading: isWaiting,
         isSuccess: isConfirmed
     } = useWaitForTransactionReceipt({ hash: txHash });
 
     React.useEffect(() => {
-        // Handle Success (Fallback Path)
         if (isConfirmed && txHash) {
-            handleSuccess(txHash);
+            console.log("✅ Mint Confirm Success (EOA fallback)", txHash);
+            setSuccessHash(txHash);
+            if (onSuccess) onSuccess(txHash);
         }
-    }, [isConfirmed, txHash]);
+    }, [isConfirmed, txHash, onSuccess]);
 
-    // Handler for success actions
-    const handleSuccess = (hashOrId) => {
-        console.log("✅ Mint Success! ID/Hash:", hashOrId);
-        if (onSuccess) onSuccess(hashOrId);
-
-        setTimeout(() => {
-            // If it's a long hash, assume it's a tx hash and open explorer
-            if (hashOrId.length > 40) {
-                window.open(`https://basescan.org/tx/${hashOrId}`, '_blank');
-            }
-            // Always try checker (might need hash if it was a batch ID, but likely hash for single op)
-            window.open(`https://builder-code-checker.vercel.app/`, '_blank');
-        }, 2000);
-    };
+    React.useEffect(() => {
+        if (txError && onError) onError(txError);
+    }, [txError, onError]);
 
     const handleMint = async (e) => {
         e?.stopPropagation();
-
-        if (!address) {
-            console.warn("Wallet not connected");
-            return;
-        }
+        if (!address) return;
 
         try {
-            // 0. Network Check
             if (chainId !== BASE_CHAIN_ID) {
-                try {
-                    await switchChainAsync({ chainId: BASE_CHAIN_ID });
-                } catch (switchError) {
-                    console.error("Failed to switch chain:", switchError);
-                    // Try to proceed, or return
-                }
+                try { await switchChainAsync({ chainId: BASE_CHAIN_ID }); }
+                catch (e) { console.error(e); }
             }
 
             const price = parseEther(priceETH.toString());
+            const allowlistProof = { proof: [], quantityLimitPerWallet: MAX_UINT256, pricePerToken: price, currency: NATIVE_TOKEN };
 
-            const allowlistProof = {
-                proof: [],
-                quantityLimitPerWallet: MAX_UINT256,
-                pricePerToken: price,
-                currency: NATIVE_TOKEN
-            };
-
-            // 1. Prepare CLEAN data (args end with "0x" empty bytes)
+            // Base Clean Data
             const cleanData = encodeFunctionData({
                 abi: BADGE_ABI,
                 functionName: 'claim',
-                args: [
-                    address,
-                    BigInt(tokenId),
-                    1n,
-                    NATIVE_TOKEN,
-                    price,
-                    allowlistProof,
-                    "0x"
-                ]
+                args: [address, BigInt(tokenId), 1n, NATIVE_TOKEN, price, allowlistProof, "0x"]
             });
 
-            // --- PATH A: Smart Wallet (EIP-5792) ---
+            // --- STRATEGY 1: Smart Wallet (Capability) ---
+            // Requirement: EXACTLY 16 bytes marker in capability for Coinbase Smart Wallet.
             if (walletClient && walletClient.sendCalls) {
                 try {
-                    console.log('[MintBadge] 🚀 Trying EIP-5792 via dataSuffix capability (Smart Wallet Path)');
-                    console.log('[MintBadge] Suffix:', SUFFIX);
+                    console.log('[MintBadge] 🚀 Trying EIP-5792 via dataSuffix capability');
+                    console.log('[MintBadge] Using 16-byte marker for Coinbase Smart Wallet compatibility');
+                    console.log('[MintBadge] Capabilities dataSuffix value:', MARKER_16_BYTES);
 
                     setIsCallsPending(true);
 
                     const id = await walletClient.sendCalls({
                         calls: [{
                             to: BADGE_ADDRESS,
-                            data: cleanData, // Clean data here! Suffix goes in capabilities.
+                            data: cleanData,
                             value: price
                         }],
                         capabilities: {
                             dataSuffix: {
-                                value: SUFFIX,
-                                optional: true // Try to append, but don't fail hard if ignored (though we want it!)
+                                value: MARKER_16_BYTES // <--- 16 bytes ONLY
                             }
                         }
                     });
 
                     console.log('[MintBadge] sendCalls successful. Bundle ID:', id);
                     setCallsId(id);
+                    setSuccessHash(id); // Use ID as hash/identifier for now
                     setIsCallsPending(false);
-                    handleSuccess(id);
-                    return; // EXIT if successful
+                    if (onSuccess) onSuccess(id);
+                    return;
 
                 } catch (err) {
-                    console.warn('[MintBadge] sendCalls failed or rejected. Falling back to EOA method.', err);
+                    console.warn('[MintBadge] sendCalls failed. Falling back to EOA manual append.', err);
                     setIsCallsPending(false);
-                    // Proceed to Path B
                 }
             }
 
-            // --- PATH B: EOA (Manual Append) ---
-            console.log('[MintBadge] 🛠️ Fallback to EOA Manual Append');
+            // --- STRATEGY 2: EOA Fallback (Manual Append) ---
+            // Requirement: FULL suffix manually concatenated.
+            console.log('[MintBadge] 🛠️ Fallback to EOA manual append');
+            console.log('[MintBadge] Suffix:', SUFFIX_FULL);
 
-            const fullData = concatHex([cleanData, SUFFIX]);
+            const fullData = concatHex([cleanData, SUFFIX_FULL]);
 
-            console.log('Final data last 32:', fullData.slice(-32));
-
-            if (fullData.slice(-32).toLowerCase() !== '80218021802180218021802180218021') {
-                alert('Local Validation Error: Suffix missing!');
-                return;
-            }
+            console.log('[MintBadge] Final data last 32:', fullData.slice(-32));
 
             sendTransaction({
                 to: BADGE_ADDRESS,
@@ -202,12 +161,36 @@ export default function MintBadgeButton({
             });
 
         } catch (err) {
-            console.error("[MintBadge] Implementation Error:", err);
+            console.error("[MintBadge] Error:", err);
             if (onError) onError(err);
         }
     };
 
     const isWorking = isCallsPending || isTxPending || isWaiting;
+
+    // --- UI RENDER ---
+
+    if (successHash) {
+        return (
+            <div className="flex flex-col gap-2 p-2 bg-green-900/40 border border-green-500/50 rounded-lg">
+                <div className="text-green-400 font-bold text-sm text-center">✅ MINT SUKCES!</div>
+                <div className="text-[10px] text-gray-400 text-center break-all">{successHash.slice(0, 10)}...</div>
+
+                <div className="flex gap-2 justify-center">
+                    <a href={`https://basescan.org/tx/${successHash}`}
+                        target="_blank" rel="noopener noreferrer"
+                        className="px-2 py-1 bg-blue-600 text-white text-[10px] rounded hover:bg-blue-500">
+                        Basescan
+                    </a>
+                    <a href={`https://builder-code-checker.vercel.app/?hash=${successHash}`}
+                        target="_blank" rel="noopener noreferrer"
+                        className="px-2 py-1 bg-purple-600 text-white text-[10px] rounded hover:bg-purple-500">
+                        Sprawdź Checker
+                    </a>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <button
@@ -216,8 +199,8 @@ export default function MintBadgeButton({
             className={className}
         >
             {typeof children === 'function'
-                ? children({ isWorking, isSending: isWorking, isWaiting: isWaiting, isConfirmed: isConfirmed || !!callsId })
-                : (children || (isWorking ? 'Minting...' : 'Mint Badge (8021 – Universal)'))
+                ? children({ isWorking, isSending: isWorking, isWaiting: isWaiting, isConfirmed: !!successHash })
+                : (children || (isWorking ? 'Minting...' : 'Mint Badge (8021 Fix)'))
             }
         </button>
     );
