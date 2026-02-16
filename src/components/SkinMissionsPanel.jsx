@@ -1,36 +1,24 @@
 import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-// ZMIANA: Dodano useWalletClient, usunięto MiniKit
-import { useAccount, useSwitchChain, usePublicClient, useWalletClient } from 'wagmi';
-import { ethers } from "ethers";
+import { useAccount, usePublicClient } from 'wagmi';
 import { getAddress, parseEther } from 'viem';
 import { SKINS, MISSIONS } from '../utils/constants';
 import sdk from '@farcaster/frame-sdk';
+import MintBadgeButton from './MintBadgeButton';
 
-const RAW_CONTRACT_ADDRESS = "0x720579D73BD6f9b16A4749D9D401f31ed9a418D7";
 const BASE_CHAIN_ID = 8453;
-const NATIVE_TOKEN = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
 const PAID_MINT_PRICE = parseEther("0.00034");
-const MAX_UINT256 = "115792089237316195423570985008687907853269984665640564039457584007913129639935";
-// NOWE: Attribution Suffix dla Base (ERC-8021)
-const ATTRIBUTION_SUFFIX = '0x626f696b356e7771080080218021802180218021802180218021';
-
-const iface = new ethers.utils.Interface([
-    "function claim(address receiver, uint256 tokenId, uint256 quantity, address currency, uint256 pricePerToken, tuple(bytes32[] proof, uint256 quantityLimitPerWallet, uint256 pricePerToken, address currency) allowlistProof, bytes data)"
-]);
+const PAID_MINT_PRICE_ETH = "0.00034";
 
 const SkinMissionsPanel = ({ unlockedSkins, currentSkinId, onSelectSkin, onClose, playerStats }) => {
     const [activeTab, setActiveTab] = useState('missions');
-    const [isMinting, setIsMinting] = useState(false);
     const [walletBalance, setWalletBalance] = useState(0n);
     const [balanceLoaded, setBalanceLoaded] = useState(false);
     const [mintSuccess, setMintSuccess] = useState(null);
 
     // Wagmi hooks
     const { address, chainId } = useAccount();
-    const { switchChainAsync } = useSwitchChain();
     const publicClient = usePublicClient();
-    const { data: walletClient } = useWalletClient(); // Klucz do wysyłania tx
 
     const openExternalUrl = (url) => {
         if (sdk?.actions?.openUrl) {
@@ -67,69 +55,6 @@ const SkinMissionsPanel = ({ unlockedSkins, currentSkinId, onSelectSkin, onClose
         loadBalance();
         return () => { isMounted = false; };
     }, [publicClient, address, chainId]);
-
-    const handleMint = async (tokenId) => {
-        if (!address) return;
-        // Fallback: Sprawdzamy czy wallet jest gotowy
-        if (!walletClient) {
-            alert("Please open this app in Base App or connect a wallet.");
-            return;
-        }
-        setIsMinting(true);
-        try {
-            if (chainId !== BASE_CHAIN_ID) {
-                try {
-                    await switchChainAsync({ chainId: BASE_CHAIN_ID });
-                } catch (e) {
-                    console.warn(e);
-                }
-            }
-            console.log(" Mint start (Wagmi + Suffix)...");
-            const cleanContractAddress = getAddress(RAW_CONTRACT_ADDRESS.trim());
-            const cleanCurrency = getAddress(NATIVE_TOKEN);
-            let pricePerToken = tokenId === 2 ? PAID_MINT_PRICE : 0n;
-            const allowlistProof = {
-                proof: [],
-                quantityLimitPerWallet: MAX_UINT256,
-                pricePerToken: pricePerToken,
-                currency: cleanCurrency
-            };
-
-            // 1. Encode standard calldata
-            const txData = iface.encodeFunctionData("claim", [
-                address, tokenId, 1, cleanCurrency, pricePerToken, allowlistProof, "0x"
-            ]);
-
-            // 2. DOKLEJANIE SUFFIXU (OnchainKit Capabilities)
-            console.log("Mint z OnchainKit capabilities – suffix dodany automatycznie");
-
-            // 3. Wysyłamy przez standardowy walletClient
-            const hash = await walletClient.sendTransaction({
-                to: cleanContractAddress,
-                data: txData,
-                value: pricePerToken,
-                chain: null,
-                capabilities: {
-                    dataSuffix: {
-                        value: '0x626f696b356e7771080080218021802180218021802180218021',
-                        optional: true
-                    }
-                }
-            });
-            console.log(" Hash:", hash);
-            if (publicClient && hash) {
-                await publicClient.waitForTransactionReceipt({ hash });
-            }
-            setMintSuccess(hash || "confirmed");
-        } catch (err) {
-            console.error(" Mint Error:", err);
-            if (!err.message?.includes("User rejected")) {
-                alert("Mint failed: " + (err.message || "Unknown error"));
-            }
-        } finally {
-            setIsMinting(false);
-        }
-    };
 
     const getProgress = (mission) => {
         let current = 0;
@@ -273,38 +198,41 @@ const SkinMissionsPanel = ({ unlockedSkins, currentSkinId, onSelectSkin, onClose
                                                     <span className="text-[10px] text-gray-300 font-bold">{rewardSkin.name}</span>
                                                 </div>
                                             )}
-                                            {/* NAPRAWIONA SEKCJA MINT (Wagmi) */}
+                                            {/* NAPRAWIONA SEKCJA MINT (Wagmi + Manual Suffix) */}
                                             {isNftMission && (
                                                 isCompleted ? (
                                                     <>
-                                                        {!walletClient ? (
-                                                            <div className="flex items-center gap-1 bg-red-500/10 px-2 py-1 rounded border border-red-500/30 text-[10px] text-red-200">
-                                                                Portfel niegotowy
-                                                            </div>
-                                                        ) : (
-                                                            <>
-                                                                {(() => {
-                                                                    const isPaidMint = tokenId === 2;
-                                                                    const hasEnoughBalance = !isPaidMint || (balanceLoaded && walletBalance >= PAID_MINT_PRICE);
-                                                                    return (
-                                                                        <>
-                                                                            <button
-                                                                                onClick={() => handleMint(tokenId)}
-                                                                                disabled={isMinting || (isPaidMint && !hasEnoughBalance)}
-                                                                                className={`text-black text-[10px] font-bold px-3 py-1.5 rounded shadow-[0_0_10px_rgba(0,240,255,0.4)] transition-all ${(isMinting || (isPaidMint && !hasEnoughBalance)) ? 'bg-gray-400 cursor-not-allowed' : 'bg-gradient-to-r from-neon-blue to-cyan-300 hover:scale-105'}`}
-                                                                            >
-                                                                                {isMinting ? "MINTING..." : (isPaidMint ? "MINT (0.00034 ETH)" : "CLAIM FREE")}
-                                                                            </button>
-                                                                            {isPaidMint && !hasEnoughBalance && (
-                                                                                <div className="mt-1 text-[9px] text-red-400 text-right">
-                                                                                    Not enough ETH
-                                                                                </div>
-                                                                            )}
-                                                                        </>
-                                                                    );
-                                                                })()}
-                                                            </>
-                                                        )}
+                                                        <MintBadgeButton
+                                                            tokenId={tokenId}
+                                                            priceETH={tokenId === 2 ? PAID_MINT_PRICE_ETH : "0"}
+                                                            disabled={tokenId === 2 && balanceLoaded && walletBalance < PAID_MINT_PRICE}
+                                                            onSuccess={(hash) => setMintSuccess(hash || "confirmed")}
+                                                            onError={(e) => alert("Mint failed: " + (e.message || "Unknown error"))}
+                                                            className="w-full" // Wrapper class
+                                                        >
+                                                            {({ isWorking }) => {
+                                                                const isPaidMint = tokenId === 2;
+                                                                const hasEnoughBalance = !isPaidMint || (balanceLoaded && walletBalance >= PAID_MINT_PRICE);
+
+                                                                // If balance check fails for paid mint, we might want to disable or show text
+                                                                // The button disabled prop handles interactability, here we style
+
+                                                                return (
+                                                                    <>
+                                                                        <div
+                                                                            className={`text-black text-[10px] font-bold px-3 py-1.5 rounded shadow-[0_0_10px_rgba(0,240,255,0.4)] transition-all flex items-center justify-center ${(isWorking || (isPaidMint && !hasEnoughBalance)) ? 'bg-gray-400 cursor-not-allowed' : 'bg-gradient-to-r from-neon-blue to-cyan-300 hover:scale-105'}`}
+                                                                        >
+                                                                            {isWorking ? "MINTING..." : (isPaidMint ? "MINT (0.00034 ETH)" : "CLAIM FREE")}
+                                                                        </div>
+                                                                        {isPaidMint && !hasEnoughBalance && (
+                                                                            <div className="mt-1 text-[9px] text-red-400 text-right">
+                                                                                Not enough ETH
+                                                                            </div>
+                                                                        )}
+                                                                    </>
+                                                                );
+                                                            }}
+                                                        </MintBadgeButton>
                                                     </>
                                                 ) : (
                                                     <div className="flex items-center gap-1 bg-black/40 px-2 py-1 rounded border border-white/10 opacity-50">

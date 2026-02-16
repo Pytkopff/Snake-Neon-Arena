@@ -68,6 +68,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     <ThirdwebProvider
       activeChain={Base}
       sdkOptions={thirdwebOptions}
+      clientId={import.meta.env.VITE_THIRDWEB_CLIENT_ID}
     >
       <WagmiProvider config={config}>
         <QueryClientProvider client={queryClient}>

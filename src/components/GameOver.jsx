@@ -1,40 +1,18 @@
 import { motion } from 'framer-motion';
 import { useState, useEffect } from 'react';
-// ZMIANA: Dodano useWalletClient, usunięto zbędne
-import { useAccount, useSwitchChain, usePublicClient, useWalletClient } from 'wagmi';
-import { ethers } from 'ethers';
-import { getAddress, parseEther } from 'viem';
-
-// Badge mint constants
-const RAW_CONTRACT_ADDRESS = "0x720579D73BD6f9b16A4749D9D401f31ed9a418D7";
-const BASE_CHAIN_ID = 8453;
-const PAID_MINT_PRICE = parseEther("0.00034");
-const iface = new ethers.utils.Interface([
-    "function claim(address receiver, uint256 tokenId, uint256 quantity, address currency, uint256 pricePerToken, tuple(bytes32[] proof, uint256 quantityLimitPerWallet, uint256 pricePerToken, address currency) allowlistProof, bytes data)"
-]);
-const NATIVE_TOKEN = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
-const MAX_UINT256 = "115792089237316195423570985008687907853269984665640564039457584007913129639935";
-
-// NOWE: Attribution Suffix dla Base (ERC-8021)
-const ATTRIBUTION_SUFFIX = '0x626f696b356e7771080080218021802180218021802180218021';
+import { useAccount, usePublicClient } from 'wagmi';
+import MintBadgeButton from './MintBadgeButton';
 
 const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare, onBackToMenu, endReason, applesCollected }) => {
     const [displayScore, setDisplayScore] = useState(0);
     const [canInteract, setCanInteract] = useState(false);
-
-    // Mint state
-    const [mintingId, setMintingId] = useState(null);
     const [mintResults, setMintResults] = useState({});
     const [walletBalance, setWalletBalance] = useState(0n);
     const [balanceLoaded, setBalanceLoaded] = useState(false);
 
-    // Wagmi hooks
-    const { address, chainId } = useAccount();
-    const { switchChainAsync } = useSwitchChain();
+    const { address } = useAccount();
     const publicClient = usePublicClient();
-    const { data: walletClient } = useWalletClient(); // Klucz do wysyłania tx
 
-    // Sprawdź balans walleta
     useEffect(() => {
         let isMounted = true;
         const loadBalance = async () => {
@@ -54,81 +32,7 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
         };
         loadBalance();
         return () => { isMounted = false; };
-    }, [publicClient, address, chainId]);
-
-    const handleMintBadge = async (tokenId) => {
-        if (!address) return;
-
-        // Fallback: Jeśli wallet nie jest gotowy (np. zwykła przeglądarka bez portfela)
-        if (!walletClient) {
-            alert("Please open this app in Base App or connect a wallet.");
-            return;
-        }
-
-        const isPaid = tokenId === 2;
-        const price = isPaid ? PAID_MINT_PRICE : 0n;
-
-        setMintingId(tokenId);
-        setMintResults(prev => ({ ...prev, [tokenId]: null }));
-
-        try {
-            if (chainId !== BASE_CHAIN_ID) {
-                try {
-                    await switchChainAsync({ chainId: BASE_CHAIN_ID });
-                } catch {
-                    console.warn("Switch chain skipped/failed");
-                }
-            }
-
-            const cleanContractAddress = getAddress(RAW_CONTRACT_ADDRESS.trim());
-            const cleanCurrency = getAddress(NATIVE_TOKEN);
-            const allowlistProof = {
-                proof: [],
-                quantityLimitPerWallet: MAX_UINT256,
-                pricePerToken: price,
-                currency: cleanCurrency
-            };
-
-            // 1. Encode standard calldata
-            const txData = iface.encodeFunctionData("claim", [
-                address, tokenId, 1, cleanCurrency, price, allowlistProof, "0x"
-            ]);
-
-            // 2. DOKLEJANIE SUFFIXU (OnchainKit Capabilities)
-            console.log("Mint z OnchainKit capabilities – suffix dodany automatycznie");
-
-            // 3. Wysyłamy przez standardowy walletClient (wagmi)
-            const hash = await walletClient.sendTransaction({
-                to: cleanContractAddress,
-                data: txData,
-                value: price,
-                chain: null,
-                capabilities: {
-                    dataSuffix: {
-                        value: '0x626f696b356e7771080080218021802180218021802180218021',
-                        optional: true
-                    }
-                }
-            });
-
-            console.log(" Tx Hash:", hash);
-
-            if (publicClient && hash) {
-                const receipt = await publicClient.waitForTransactionReceipt({ hash });
-                if (receipt.status !== 'success') throw new Error("Transaction failed on-chain");
-            }
-
-            setMintResults(prev => ({ ...prev, [tokenId]: 'success' }));
-        } catch (err) {
-            console.error(" Badge Mint Error:", err);
-            if (!err.message?.includes("User rejected")) {
-                setMintResults(prev => ({ ...prev, [tokenId]: 'error' }));
-                alert("Mint failed: " + (err.message || "Unknown error"));
-            }
-        } finally {
-            setMintingId(null);
-        }
-    };
+    }, [publicClient, address]);
 
     // Ticker Score
     useEffect(() => {
@@ -161,6 +65,8 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
 
     const progressToBest = bestScore > 0 ? Math.min(100, (score / bestScore) * 100) : 100;
     const missingPoints = bestScore - score;
+    const PAID_MINT_PRICE_ETH = "0.00034";
+    const PAID_MINT_PRICE_WEI = 340000000000000n; // 0.00034 ETH
 
     return (
         <motion.div
@@ -255,25 +161,24 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
                             transition: 'opacity 0.5s ease-in'
                         }}
                     >
-                        {/* NOWE: Sprawdzenie walletClient zamiast MiniKit */}
-                        {!walletClient ? (
-                            <div className="text-yellow-300 text-center py-4 text-[11px] border border-yellow-500/20 rounded-xl bg-yellow-500/5">
-                                Otwórz w Base App aby odebrać nagrody.
+                        {/* Hello World Badge (FREE) */}
+                        {mintResults[0] === 'success' ? (
+                            <div className="flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-green-500/10 border border-green-500/30">
+                                <span className="text-base"></span>
+                                <span className="text-xs font-bold text-green-400">Hello World Claimed!</span>
                             </div>
                         ) : (
-                            <>
-                                {/* Hello World Badge (FREE) */}
-                                {mintResults[0] === 'success' ? (
-                                    <div className="flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-green-500/10 border border-green-500/30">
-                                        <span className="text-base"></span>
-                                        <span className="text-xs font-bold text-green-400">Hello World Claimed!</span>
-                                    </div>
-                                ) : (
-                                    <button
-                                        onClick={() => handleMintBadge(0)}
-                                        disabled={mintingId !== null}
-                                        className={`w-full flex items-center justify-between py-2.5 px-4 rounded-xl border transition-all ${mintingId === 0 ? 'bg-white/5 border-white/10 cursor-wait' : 'bg-gradient-to-r from-yellow-500/10 to-orange-500/10 border-yellow-500/30 hover:border-yellow-400/50 hover:scale-[1.01] active:scale-[0.99]'}`}
-                                    >
+                            <MintBadgeButton
+                                tokenId={0}
+                                onSuccess={() => setMintResults(prev => ({ ...prev, 0: 'success' }))}
+                                onError={(e) => {
+                                    setMintResults(prev => ({ ...prev, 0: 'error' }));
+                                    alert("Mint failed: " + (e.message || "Unknown error"));
+                                }}
+                                className="w-full"
+                            >
+                                {({ isWorking }) => (
+                                    <div className={`flex items-center justify-between py-2.5 px-4 rounded-xl border transition-all ${isWorking ? 'bg-white/5 border-white/10 cursor-wait' : 'bg-gradient-to-r from-yellow-500/10 to-orange-500/10 border-yellow-500/30 hover:border-yellow-400/50 hover:scale-[1.01] active:scale-[0.99]'}`}>
                                         <div className="flex items-center gap-2">
                                             <span className="text-lg"></span>
                                             <div className="text-left">
@@ -281,39 +186,51 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
                                                 <div className="text-[10px] text-gray-400">Free mint on Base</div>
                                             </div>
                                         </div>
-                                        <div className={`text-[11px] font-bold px-3 py-1.5 rounded-lg transition-all ${mintingId === 0 ? 'bg-gray-600 text-gray-300' : 'bg-gradient-to-r from-yellow-500 to-orange-500 text-black shadow-[0_0_10px_rgba(234,179,8,0.3)]'}`}>
-                                            {mintingId === 0 ? 'MINTING...' : mintResults[0] === 'error' ? 'RETRY' : 'CLAIM FREE'}
+                                        <div className={`text-[11px] font-bold px-3 py-1.5 rounded-lg transition-all ${isWorking ? 'bg-gray-600 text-gray-300' : 'bg-gradient-to-r from-yellow-500 to-orange-500 text-black shadow-[0_0_10px_rgba(234,179,8,0.3)]'}`}>
+                                            {isWorking ? 'MINTING...' : mintResults[0] === 'error' ? 'RETRY' : 'CLAIM FREE'}
                                         </div>
-                                    </button>
-                                )}
-
-                                {/* Supporter Badge (PAID) */}
-                                {mintResults[2] === 'success' ? (
-                                    <div className="flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-green-500/10 border border-green-500/30">
-                                        <span className="text-base"></span>
-                                        <span className="text-xs font-bold text-green-400">Supporter Badge Claimed!</span>
                                     </div>
-                                ) : (
-                                    <button
-                                        onClick={() => handleMintBadge(2)}
-                                        disabled={mintingId !== null || (balanceLoaded && walletBalance < PAID_MINT_PRICE)}
-                                        className={`w-full flex items-center justify-between py-2.5 px-4 rounded-xl border transition-all ${mintingId === 2 ? 'bg-white/5 border-white/10 cursor-wait' : (balanceLoaded && walletBalance < PAID_MINT_PRICE) ? 'bg-white/5 border-white/5 opacity-50 cursor-not-allowed' : 'bg-gradient-to-r from-cyan-500/10 to-teal-500/10 border-cyan-500/30 hover:border-cyan-400/50 hover:scale-[1.01] active:scale-[0.99]'}`}
-                                    >
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-lg"></span>
-                                            <div className="text-left">
-                                                <div className="text-sm font-bold text-white leading-tight">Supporter Badge</div>
-                                                <div className="text-[10px] text-gray-400">
-                                                    {balanceLoaded && walletBalance < PAID_MINT_PRICE ? 'Not enough ETH' : 'Support the Dev'}
+                                )}
+                            </MintBadgeButton>
+                        )}
+
+                        {/* Supporter Badge (PAID) */}
+                        {mintResults[2] === 'success' ? (
+                            <div className="flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-green-500/10 border border-green-500/30">
+                                <span className="text-base"></span>
+                                <span className="text-xs font-bold text-green-400">Supporter Badge Claimed!</span>
+                            </div>
+                        ) : (
+                            <MintBadgeButton
+                                tokenId={2}
+                                priceETH={PAID_MINT_PRICE_ETH}
+                                disabled={balanceLoaded && walletBalance < PAID_MINT_PRICE_WEI}
+                                onSuccess={() => setMintResults(prev => ({ ...prev, 2: 'success' }))}
+                                onError={(e) => {
+                                    alert("Mint failed: " + (e.message || "Unknown error"));
+                                }}
+                                className="w-full"
+                            >
+                                {({ isWorking }) => {
+                                    const notEnough = balanceLoaded && walletBalance < PAID_MINT_PRICE_WEI;
+                                    return (
+                                        <div className={`flex items-center justify-between py-2.5 px-4 rounded-xl border transition-all ${isWorking ? 'bg-white/5 border-white/10 cursor-wait' : notEnough ? 'bg-white/5 border-white/5 opacity-50 cursor-not-allowed' : 'bg-gradient-to-r from-cyan-500/10 to-teal-500/10 border-cyan-500/30 hover:border-cyan-400/50 hover:scale-[1.01] active:scale-[0.99]'}`}>
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-lg"></span>
+                                                <div className="text-left">
+                                                    <div className="text-sm font-bold text-white leading-tight">Supporter Badge</div>
+                                                    <div className="text-[10px] text-gray-400">
+                                                        {notEnough ? 'Not enough ETH' : 'Support the Dev'}
+                                                    </div>
                                                 </div>
                                             </div>
+                                            <div className={`text-[11px] font-bold px-3 py-1.5 rounded-lg transition-all ${isWorking ? 'bg-gray-600 text-gray-300' : notEnough ? 'bg-gray-700 text-gray-400' : 'bg-gradient-to-r from-cyan-500 to-teal-500 text-black shadow-[0_0_10px_rgba(0,240,255,0.3)]'}`}>
+                                                {isWorking ? 'MINTING...' : '0.00034 ETH'}
+                                            </div>
                                         </div>
-                                        <div className={`text-[11px] font-bold px-3 py-1.5 rounded-lg transition-all ${mintingId === 2 ? 'bg-gray-600 text-gray-300' : (balanceLoaded && walletBalance < PAID_MINT_PRICE) ? 'bg-gray-700 text-gray-400' : 'bg-gradient-to-r from-cyan-500 to-teal-500 text-black shadow-[0_0_10px_rgba(0,240,255,0.3)]'}`}>
-                                            {mintingId === 2 ? 'MINTING...' : mintResults[2] === 'error' ? 'RETRY' : '0.00034 ETH'}
-                                        </div>
-                                    </button>
-                                )}
-                            </>
+                                    );
+                                }}
+                            </MintBadgeButton>
                         )}
                     </div>
                 )}
@@ -359,7 +276,6 @@ const GameOver = ({ score, maxCombo, bestScore, isNewRecord, onRestart, onShare,
                 >
                     Tip: Grab magnets to collect apples from a distance!
                 </motion.p>
-
             </motion.div>
         </motion.div>
     );
