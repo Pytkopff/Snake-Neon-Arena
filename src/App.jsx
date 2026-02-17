@@ -58,7 +58,6 @@ function App() {
   const [shareCopied, setShareCopied] = useState(false);
   const prevWalletConnectedRef = useRef(false);
   const prevWalletAddressRef = useRef(null);
-  const processedGameOver = useRef(false);
 
   // Game State
   const [isPlaying, setIsPlaying] = useState(false);
@@ -345,8 +344,7 @@ function App() {
 
   // Game Over Handler
   useEffect(() => {
-    if (gameOver && !processedGameOver.current) {
-      processedGameOver.current = true;
+    if (gameOver) {
       setIsPlaying(false);
       const handleGameOver = async () => {
         // 🔥 NOWY SYSTEM: Zapisz sesję do game_sessions NAJPIERW (żeby checkUnlocks widział nowe dane)
@@ -403,7 +401,6 @@ function App() {
     // Reszta logiki
     setIsPlaying(true);
     setIsPaused(false);
-    processedGameOver.current = false;
     setNotifiedMissions([]);
     startGame(gameMode);
   };
