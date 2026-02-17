@@ -82,7 +82,7 @@ export const syncLocalScoresToDB = async (canonicalId, localScores, dbScores) =>
 
   try {
     const modesToSync = [];
-    
+
     // Sprawdź, które wyniki lokalne są wyższe
     if (localScores.bestScoreClassic > dbScores.bestScoreClassic) {
       modesToSync.push({ mode: 'classic', score: localScores.bestScoreClassic });
@@ -164,10 +164,10 @@ export const syncProfile = async (walletAddress) => {
         .insert([{ wallet_address: walletAddress }])
         .select()
         .single();
-      
+
       if (createError) throw createError;
       profile = newProfile;
-      
+
       await supabase.from('player_stats').insert([{ user_id: profile.id }]);
     }
     return profile;
@@ -198,7 +198,7 @@ export const getPlayerStats = async (walletAddress, canonicalId = null) => {
     totalApples: Math.max(0, Number(localAppleBalance) || 0),
     totalGames: getStorageItem(STORAGE_KEYS.TOTAL_GAMES, 0),
     bestScore: Math.max(localBestClassic, localBestWalls, localBestChill),
-    
+
     // 🔥 TE TRZY POLA SĄ KLUCZOWE DLA MISJI:
     bestScoreClassic: localBestClassic,
     bestScoreWalls: localBestWalls,
@@ -208,27 +208,15 @@ export const getPlayerStats = async (walletAddress, canonicalId = null) => {
   // 3. Logika Online (Supabase) - NOWY SYSTEM
   // Priorytet: canonicalId > walletAddress
   let targetCanonicalId = canonicalId;
-  
+
   try {
     // A. Jeśli mamy canonicalId, użyj go bezpośrednio
     if (targetCanonicalId) {
       console.log('📊 Using canonicalId directly:', targetCanonicalId);
-      
+
       // 🔥 FETCH BEST SCORES FROM SQL VIEWS (CROSS-DEVICE SYNC)
       const dbScores = await fetchBestScoresFromDB(targetCanonicalId);
-      
-      // Pobierz liczbę gier
-      const { count, error: countError } = await supabase
-        .from('game_sessions')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', targetCanonicalId);
-      
-      if (countError) {
-        console.error('Error counting games from game_sessions:', countError);
-      }
-      
-      const gameCount = count !== null ? count : 0;
-      
+
       // 🔥 CONFLICT RESOLUTION: Porównaj lokalne wyniki z bazą
       // Jeśli lokalne wyniki są WYŻSZE niż w bazie, automatycznie prześlij je w tle
       const localScores = {
@@ -236,12 +224,12 @@ export const getPlayerStats = async (walletAddress, canonicalId = null) => {
         bestScoreWalls: localBestWalls,
         bestScoreChill: localBestChill
       };
-      
+
       // Automatycznie synchronizuj wyższe lokalne wyniki do bazy (w tle, nie czekaj)
-      syncLocalScoresToDB(targetCanonicalId, localScores, dbScores).catch(err => 
+      syncLocalScoresToDB(targetCanonicalId, localScores, dbScores).catch(err =>
         console.error('Background sync failed:', err)
       );
-      
+
       // 🔥 NOWE: Dla zalogowanych użytkowników, BAZA jest źródłem prawdy
       // Używamy max() tylko dla scores (żeby nie stracić offline progress)
       // Ale dla jabłek używamy TYLKO bazy (bo ranking liczy z bazy)
@@ -251,10 +239,10 @@ export const getPlayerStats = async (walletAddress, canonicalId = null) => {
         bestScoreChill: Math.max(localBestChill, dbScores.bestScoreChill),
         totalApplesGross: dbScores.totalApples  // ✅ Użyj TYLKO bazy (nie max!)
       };
-      
+
       const resolvedApplesSpent = 0;  // ✅ Reset spent (wydatki są w apple_transactions w bazie)
       const resolvedAppleBalance = Math.max(0, Number(dbScores.totalApples) || 0);  // ✅ Bezpośrednio z bazy
-      
+
       // 🔥 Zapisz rozwiązane wartości do localStorage (NADPISZ starymi danymi z bazy)
       setStorageItem(STORAGE_KEYS.BEST_SCORE, resolvedScores.bestScoreClassic);
       setStorageItem('snake_best_score_walls', resolvedScores.bestScoreWalls);
@@ -262,27 +250,31 @@ export const getPlayerStats = async (walletAddress, canonicalId = null) => {
       setStorageItem('snake_total_apples_gross', resolvedScores.totalApplesGross);  // Baza = prawda
       setStorageItem('snake_apples_spent', 0);  // Reset (wydatki są w bazie)
       setStorageItem(STORAGE_KEYS.TOTAL_APPLES, resolvedAppleBalance);  // Baza = prawda
-      setStorageItem(STORAGE_KEYS.TOTAL_GAMES, gameCount);
-      
+      // ✅ NIE nadpisujemy TOTAL_GAMES z game_sessions — syncLocalScoresToDB wstawia tam fałszywe sesje
+      // totalGames jest inkrementowany TYLKO w updatePlayerStats() po prawdziwej grze
+
       console.log('✅ Resolved scores (local vs DB):', {
         classic: { local: localBestClassic, db: dbScores.bestScoreClassic, resolved: resolvedScores.bestScoreClassic },
         walls: { local: localBestWalls, db: dbScores.bestScoreWalls, resolved: resolvedScores.bestScoreWalls },
         chill: { local: localBestChill, db: dbScores.bestScoreChill, resolved: resolvedScores.bestScoreChill },
         apples: { local: localAppleGross, db: dbScores.totalApples, gross: resolvedScores.totalApplesGross, spent: resolvedApplesSpent, balance: resolvedAppleBalance }
       });
-      
+
+      // ✅ totalGames z localStorage (inkrementowany tylko po prawdziwych grach)
+      const localTotalGames = getStorageItem(STORAGE_KEYS.TOTAL_GAMES, 0);
+
       stats = {
         totalApples: resolvedAppleBalance,
-        totalGames: gameCount,
+        totalGames: localTotalGames,
         bestScore: Math.max(resolvedScores.bestScoreClassic, resolvedScores.bestScoreWalls, resolvedScores.bestScoreChill),
         bestScoreClassic: resolvedScores.bestScoreClassic,
         bestScoreWalls: resolvedScores.bestScoreWalls,
         bestScoreChill: resolvedScores.bestScoreChill
       };
-      
+
       return stats;
     }
-    
+
     // B. Jeśli nie ma canonicalId, próbuj znaleźć przez walletAddress
     if (walletAddress) {
       const { data: newProfile } = await supabase
@@ -290,38 +282,26 @@ export const getPlayerStats = async (walletAddress, canonicalId = null) => {
         .select('canonical_user_id')
         .eq('wallet_address', walletAddress.toLowerCase())
         .single();
-      
+
       if (newProfile) {
         console.log('📊 Found new profile by wallet:', newProfile);
         targetCanonicalId = newProfile.canonical_user_id;
-        
+
         // 🔥 FETCH BEST SCORES FROM SQL VIEWS (CROSS-DEVICE SYNC)
         const dbScores = await fetchBestScoresFromDB(targetCanonicalId);
-        
-        // Pobierz liczbę gier
-        const { count, error: countError } = await supabase
-          .from('game_sessions')
-          .select('*', { count: 'exact', head: true })
-          .eq('user_id', targetCanonicalId);
-        
-        if (countError) {
-          console.error('Error counting games from game_sessions:', countError);
-        }
-        
-        const gameCount = count !== null ? count : 0;
-        
+
         // 🔥 CONFLICT RESOLUTION: Porównaj lokalne wyniki z bazą
         const localScores = {
           bestScoreClassic: localBestClassic,
           bestScoreWalls: localBestWalls,
           bestScoreChill: localBestChill
         };
-        
+
         // Automatycznie synchronizuj wyższe lokalne wyniki do bazy (w tle, nie czekaj)
-        syncLocalScoresToDB(targetCanonicalId, localScores, dbScores).catch(err => 
+        syncLocalScoresToDB(targetCanonicalId, localScores, dbScores).catch(err =>
           console.error('Background sync failed:', err)
         );
-        
+
         // 🔥 NOWE: Dla zalogowanych, BAZA jest źródłem prawdy dla jabłek
         const resolvedScores = {
           bestScoreClassic: Math.max(localBestClassic, dbScores.bestScoreClassic),
@@ -329,10 +309,10 @@ export const getPlayerStats = async (walletAddress, canonicalId = null) => {
           bestScoreChill: Math.max(localBestChill, dbScores.bestScoreChill),
           totalApplesGross: dbScores.totalApples  // ✅ Użyj TYLKO bazy (nie max!)
         };
-        
+
         const resolvedApplesSpent = 0;  // ✅ Reset spent (wydatki są w bazie)
         const resolvedAppleBalance = Math.max(0, Number(dbScores.totalApples) || 0);  // ✅ Bezpośrednio z bazy
-        
+
         // Zapisz rozwiązane wartości do localStorage (NADPISZ starymi danymi z bazy)
         setStorageItem(STORAGE_KEYS.BEST_SCORE, resolvedScores.bestScoreClassic);
         setStorageItem('snake_best_score_walls', resolvedScores.bestScoreWalls);
@@ -340,32 +320,35 @@ export const getPlayerStats = async (walletAddress, canonicalId = null) => {
         setStorageItem('snake_total_apples_gross', resolvedScores.totalApplesGross);
         setStorageItem('snake_apples_spent', 0);  // Reset spent
         setStorageItem(STORAGE_KEYS.TOTAL_APPLES, resolvedAppleBalance);
-        setStorageItem(STORAGE_KEYS.TOTAL_GAMES, gameCount);
-        
+        // ✅ NIE nadpisujemy TOTAL_GAMES — analogicznie jak w ścieżce A
+
         console.log('✅ Resolved scores (local vs DB):', {
           classic: { local: localBestClassic, db: dbScores.bestScoreClassic, resolved: resolvedScores.bestScoreClassic },
           walls: { local: localBestWalls, db: dbScores.bestScoreWalls, resolved: resolvedScores.bestScoreWalls },
           chill: { local: localBestChill, db: dbScores.bestScoreChill, resolved: resolvedScores.bestScoreChill },
           apples: { local: localAppleGross, db: dbScores.totalApples, gross: resolvedScores.totalApplesGross, spent: resolvedApplesSpent, balance: resolvedAppleBalance }
         });
-        
+
+        // ✅ totalGames z localStorage (inkrementowany tylko po prawdziwych grach)
+        const localTotalGames = getStorageItem(STORAGE_KEYS.TOTAL_GAMES, 0);
+
         stats = {
           totalApples: resolvedAppleBalance,
-          totalGames: gameCount,
+          totalGames: localTotalGames,
           bestScore: Math.max(resolvedScores.bestScoreClassic, resolvedScores.bestScoreWalls, resolvedScores.bestScoreChill),
           bestScoreClassic: resolvedScores.bestScoreClassic,
           bestScoreWalls: resolvedScores.bestScoreWalls,
           bestScoreChill: resolvedScores.bestScoreChill
         };
-        
+
         return stats;
       }
-      
+
       // C. Fallback: stary system (dla backward compatibility)
       const { data: profile } = await supabase.from('profiles').select('id').eq('wallet_address', walletAddress).single();
       if (profile) {
         const { data: dbStats } = await supabase.from('player_stats').select('*').eq('user_id', profile.id).single();
-        
+
         if (dbStats) {
           // Jeśli mamy dane z chmury, nadpisujemy lokalne
           // Fallback: traktuj total_apples_eaten jako "gross" i odlicz lokalne wydatki
@@ -373,17 +356,17 @@ export const getPlayerStats = async (walletAddress, canonicalId = null) => {
           const gross = Math.max(0, Number(dbStats.total_apples_eaten) || 0);
           setStorageItem('snake_total_apples_gross', gross);
           setStorageItem(STORAGE_KEYS.TOTAL_APPLES, Math.max(0, gross - spent));
-          setStorageItem(STORAGE_KEYS.TOTAL_GAMES, dbStats.total_games_played);
-          
+          // ✅ NIE nadpisujemy TOTAL_GAMES ze starego systemu player_stats
+
           stats = {
-              totalApples: Math.max(0, gross - spent),
-              totalGames: dbStats.total_games_played,
-              // Ogólny
-              bestScore: Math.max(dbStats.highest_score_classic, dbStats.highest_score_walls, dbStats.highest_score_chill),
-              // Szczegółowe
-              bestScoreClassic: dbStats.highest_score_classic,
-              bestScoreWalls: dbStats.highest_score_walls,
-              bestScoreChill: dbStats.highest_score_chill
+            totalApples: Math.max(0, gross - spent),
+            totalGames: getStorageItem(STORAGE_KEYS.TOTAL_GAMES, 0),
+            // Ogólny
+            bestScore: Math.max(dbStats.highest_score_classic, dbStats.highest_score_walls, dbStats.highest_score_chill),
+            // Szczegółowe
+            bestScoreClassic: dbStats.highest_score_classic,
+            bestScoreWalls: dbStats.highest_score_walls,
+            bestScoreChill: dbStats.highest_score_chill
           };
         }
       }
@@ -391,7 +374,7 @@ export const getPlayerStats = async (walletAddress, canonicalId = null) => {
   } catch (e) {
     console.error("Error syncing stats:", e);
   }
-  
+
   return stats;
 };
 
@@ -401,27 +384,26 @@ export const getPlayerStats = async (walletAddress, canonicalId = null) => {
 export const updatePlayerStats = async (applesInGame, score, walletAddress, mode = 'classic') => {
   // Aktualizujemy best score lokalnie
   updateBestScore(score, mode);
-  
+
   // 🔥 NOWE: Aktualizuj gross dla WSZYSTKICH (goście + zalogowani)
   // To jest potrzebne, żeby getPlayerStats() miało aktualne dane do max(local, db)
   const currentGross = Math.max(0, Number(getStorageItem('snake_total_apples_gross', 0)) || 0);
   const currentSpent = Math.max(0, Number(getStorageItem('snake_apples_spent', 0)) || 0);
   const newGross = currentGross + applesInGame;
   const newBalance = Math.max(0, newGross - currentSpent);
-  
+
   setStorageItem('snake_total_apples_gross', newGross);
   setStorageItem(STORAGE_KEYS.TOTAL_APPLES, newBalance);
-  
-  // Dla gości aktualizujemy też total games
-  if (!walletAddress) {
-    const currentTotalGames = getStorageItem(STORAGE_KEYS.TOTAL_GAMES, 0);
-    setStorageItem(STORAGE_KEYS.TOTAL_GAMES, currentTotalGames + 1);
-  } 
+
+  // ✅ FIX: Inkrementuj total games dla WSZYSTKICH użytkowników (nie tylko gości)
+  // To jest JEDYNE miejsce gdzie totalGames rośnie — po prawdziwej grze
+  const currentTotalGames = getStorageItem(STORAGE_KEYS.TOTAL_GAMES, 0);
+  setStorageItem(STORAGE_KEYS.TOTAL_GAMES, currentTotalGames + 1);
 
   // ❌ USUNIĘTE: Stary system RPC increment_apples - nie używamy już tego
   // Jabłka są zapisywane przez saveGameSession do game_sessions (nowy system)
   // Statystyki będą pobierane przez getPlayerStats z game_sessions
-  
+
   // Zwracamy statystyki (dla gości z localStorage, dla zalogowanych z bazy)
   if (!walletAddress) {
     return {
@@ -437,7 +419,7 @@ export const updatePlayerStats = async (applesInGame, score, walletAddress, mode
       bestScoreChill: getStorageItem('snake_best_score_chill', 0)
     };
   }
-  
+
   // Dla zalogowanych użytkowników statystyki będą pobrane przez getPlayerStats w App.jsx
   // Zwracamy tylko best scores (jabłka i gry będą z bazy)
   return {
@@ -461,7 +443,7 @@ export const unlockSkinOnServer = async (skinId, walletAddress) => {
     const walletAddressLower = walletAddress.toLowerCase();
     // Najpierw znajdź lub utwórz profil
     let { data: profile } = await supabase.from('profiles').select('id').eq('wallet_address', walletAddressLower).single();
-    
+
     // Jeśli nie ma profilu, utwórz go
     if (!profile) {
       const { data: newProfile, error: createError } = await supabase
@@ -469,14 +451,14 @@ export const unlockSkinOnServer = async (skinId, walletAddress) => {
         .insert([{ wallet_address: walletAddressLower }])
         .select()
         .single();
-      
+
       if (createError) {
         console.error('Error creating profile for skin unlock:', createError);
         return;
       }
       profile = newProfile;
     }
-    
+
     // Sprawdź czy skin już nie jest odblokowany (unikaj duplikatów)
     const { data: existing } = await supabase
       .from('unlocked_skins')
@@ -484,17 +466,17 @@ export const unlockSkinOnServer = async (skinId, walletAddress) => {
       .eq('user_id', profile.id)
       .eq('skin_id', skinId)
       .single();
-    
+
     if (existing) {
       console.log(`Skin ${skinId} already unlocked for user ${profile.id}`);
       return;
     }
-    
+
     // Odblokuj skin
     const { error: insertError } = await supabase
       .from('unlocked_skins')
       .insert([{ user_id: profile.id, skin_id: skinId }]);
-    
+
     if (insertError) {
       console.error('Error unlocking skin:', insertError);
     } else {
@@ -519,7 +501,7 @@ export const getUnlockedSkins = async (walletAddress) => {
 
     if (profile) {
       const { data: unlocked } = await supabase.from('unlocked_skins').select('skin_id').eq('user_id', profile.id);
-      
+
       if (unlocked) {
         // Jeśli baza zwraca 0 skinów, a lokalnie mamy więcej -> nie nadpisuj (fallback)
         if (unlocked.length === 0 && localSkins.length > 1) {
@@ -527,7 +509,7 @@ export const getUnlockedSkins = async (walletAddress) => {
         }
         // Robimy listę skinów z bazy
         const dbSkins = unlocked.map(u => u.skin_id);
-        
+
         // Upewniamy się, że 'default' zawsze tam jest
         if (!dbSkins.includes('default')) dbSkins.push('default');
 
@@ -535,7 +517,7 @@ export const getUnlockedSkins = async (walletAddress) => {
         // Ignorujemy to, co było w localSkins (te 6/6) i NADPISUJEMY je stanem z bazy.
         // Dzięki temu "czysty" portfel automatycznie wyczyści "brudną" przeglądarkę.
         setStorageItem(STORAGE_KEYS.UNLOCKED_SKINS, dbSkins);
-        
+
         return dbSkins;
       }
     }
@@ -565,33 +547,33 @@ export const checkUnlocks = async (stats, walletAddress) => {
     // --- PROSTE MISJE (Ogólne) ---
     if (mission.type === 'games' && stats.totalGames >= mission.target) isCompleted = true;
     if (mission.type === 'apples' && stats.totalApples >= mission.target) isCompleted = true;
-    
+
     // --- MISJE NA WYNIK (Z uwzględnieniem trybu!) ---
     if (mission.type === 'score') {
-        let scoreToCheck = 0;
-        
-        // Jeśli misja wymaga konkretnego trybu, sprawdzamy tylko ten wynik
-        if (mission.mode === 'classic') scoreToCheck = stats.bestScoreClassic;
-        else if (mission.mode === 'walls') scoreToCheck = stats.bestScoreWalls;
-        else if (mission.mode === 'chill') scoreToCheck = stats.bestScoreChill;
-        // Jeśli nie podano trybu, bierzemy najlepszy ogólny (dla prostych misji)
-        else scoreToCheck = stats.bestScore;
+      let scoreToCheck = 0;
 
-        if (scoreToCheck >= mission.target) isCompleted = true;
+      // Jeśli misja wymaga konkretnego trybu, sprawdzamy tylko ten wynik
+      if (mission.mode === 'classic') scoreToCheck = stats.bestScoreClassic;
+      else if (mission.mode === 'walls') scoreToCheck = stats.bestScoreWalls;
+      else if (mission.mode === 'chill') scoreToCheck = stats.bestScoreChill;
+      // Jeśli nie podano trybu, bierzemy najlepszy ogólny (dla prostych misji)
+      else scoreToCheck = stats.bestScore;
+
+      if (scoreToCheck >= mission.target) isCompleted = true;
     }
 
     if (isCompleted) {
       if (mission.rewardType === 'skin') {
-         const skinName = SKINS.find(s => s.id === mission.rewardId)?.name || 'Unknown Skin';
-         newUnlocks.push(skinName);
-         
-         const updatedLocal = [...unlocked, mission.rewardId];
-         setStorageItem(STORAGE_KEYS.UNLOCKED_SKINS, updatedLocal);
-         unlockSkinOnServer(mission.rewardId, walletAddress);
+        const skinName = SKINS.find(s => s.id === mission.rewardId)?.name || 'Unknown Skin';
+        newUnlocks.push(skinName);
+
+        const updatedLocal = [...unlocked, mission.rewardId];
+        setStorageItem(STORAGE_KEYS.UNLOCKED_SKINS, updatedLocal);
+        unlockSkinOnServer(mission.rewardId, walletAddress);
       }
     }
   });
-  
+
   return newUnlocks;
 };
 
@@ -624,8 +606,8 @@ const addLocalScore = (key, score, name) => {
   const list = getStorageItem(key, []);
   const entry = { score, name, date: new Date().toISOString() };
   list.push(entry);
-  list.sort((a, b) => b.score - a.score); 
-  const top10 = list.slice(0, 10); 
+  list.sort((a, b) => b.score - a.score);
+  const top10 = list.slice(0, 10);
   setStorageItem(key, top10);
 };
 
@@ -643,18 +625,18 @@ export const addToLeaderboardChill = (score, name) => addLocalScore(STORAGE_KEYS
 export const addToLeaderboardChill_Local = addToLeaderboardChill;
 
 export const clearLeaderboard = (keyName) => {
-    let storageKey = keyName;
-    if (keyName === 'snake_leaderboard') storageKey = STORAGE_KEYS.LEADERBOARD;
-    else if (keyName === 'snake_leaderboard_60s') storageKey = STORAGE_KEYS.LEADERBOARD_60S;
-    else if (keyName === 'snake_leaderboard_chill') storageKey = STORAGE_KEYS.LEADERBOARD_CHILL;
-    
-    try {
-        localStorage.removeItem(storageKey);
-        return true;
-    } catch (e) {
-        console.error(e);
-        return false;
-    }
+  let storageKey = keyName;
+  if (keyName === 'snake_leaderboard') storageKey = STORAGE_KEYS.LEADERBOARD;
+  else if (keyName === 'snake_leaderboard_60s') storageKey = STORAGE_KEYS.LEADERBOARD_60S;
+  else if (keyName === 'snake_leaderboard_chill') storageKey = STORAGE_KEYS.LEADERBOARD_CHILL;
+
+  try {
+    localStorage.removeItem(storageKey);
+    return true;
+  } catch (e) {
+    console.error(e);
+    return false;
+  }
 };
 
 // ==========================================
@@ -668,10 +650,10 @@ export const clearLeaderboard = (keyName) => {
  */
 export const syncPlayerProfile = async (identity) => {
   const { farcasterFid, walletAddress, guestId, previousGuestId, username, avatarUrl, displayName: identityDisplayName } = identity;
-  
+
   // 1. Określ user_id i canonical_user_id (priorytet)
   let userId, canonicalUserId, displayName, defaultAvatar;
-  
+
   if (farcasterFid) {
     userId = `fc:${farcasterFid}`;
     canonicalUserId = `fc:${farcasterFid}`;
@@ -694,20 +676,20 @@ export const syncPlayerProfile = async (identity) => {
 
   try {
     console.log('🔄 syncPlayerProfile called with:', { farcasterFid, walletAddress, guestId, username });
-    
+
     // 🔥 MERGE STRATEGY: Prevent "Split Personality" Bug
     // If user has BOTH Farcaster AND Wallet, merge them into ONE profile
-    
+
     // 2A. Sprawdź czy istnieje profil Farcaster (priorytet najwyższy)
     if (farcasterFid && walletAddress) {
       console.log('🔄 User has both Farcaster AND Wallet - checking for merge...');
-      
+
       const { data: fcProfile } = await supabase
         .from('player_profiles')
         .select('*')
         .eq('user_id', `fc:${farcasterFid}`)
         .single();
-      
+
       if (fcProfile) {
         // Farcaster profil już istnieje - UPDATE z wallet_address
         console.log('✅ Found existing Farcaster profile - updating with wallet');
@@ -720,17 +702,17 @@ export const syncPlayerProfile = async (identity) => {
             farcaster_username: username || fcProfile.farcaster_username,
           })
           .eq('user_id', `fc:${farcasterFid}`);
-        
+
         // 🔥 FIX: Usuń WSZYSTKIE duplikaty dla tego wallet_address (nie tylko exact match)
         const { data: duplicates } = await supabase
           .from('player_profiles')
           .select('user_id')
           .eq('wallet_address', walletAddress.toLowerCase())
           .neq('user_id', `fc:${farcasterFid}`);
-        
+
         if (duplicates && duplicates.length > 0) {
           console.log('🗑️ Removing duplicate profiles:', duplicates.map(d => d.user_id));
-          
+
           // Przenieś sesje gry ze starych profili do Farcaster profilu
           for (const dup of duplicates) {
             await supabase
@@ -738,7 +720,7 @@ export const syncPlayerProfile = async (identity) => {
               .update({ user_id: `fc:${farcasterFid}` })
               .eq('user_id', dup.user_id);
           }
-          
+
           // Teraz usuń duplikaty
           await supabase
             .from('player_profiles')
@@ -746,7 +728,7 @@ export const syncPlayerProfile = async (identity) => {
             .eq('wallet_address', walletAddress.toLowerCase())
             .neq('user_id', `fc:${farcasterFid}`);
         }
-        
+
         // 🔥 Jeśli wcześniej na tym urządzeniu był guest, też go scalamy do konta FC
         if (previousGuestId) {
           const guestUserId = `guest:${previousGuestId}`;
@@ -754,7 +736,7 @@ export const syncPlayerProfile = async (identity) => {
             .from('game_sessions')
             .update({ user_id: `fc:${farcasterFid}` })
             .eq('user_id', guestUserId);
-          
+
           await supabase
             .from('player_profiles')
             .delete()
@@ -764,14 +746,14 @@ export const syncPlayerProfile = async (identity) => {
         console.log('✅ Merged wallet (and possible guest) into Farcaster profile');
         return fcProfile.canonical_user_id;
       }
-      
+
       // Sprawdź czy istnieje profil wallet-only
       const { data: walletProfile } = await supabase
         .from('player_profiles')
         .select('*')
         .eq('user_id', walletAddress.toLowerCase())
         .single();
-      
+
       if (walletProfile) {
         // Wallet profil istnieje - UPDATE z Farcaster info
         console.log('✅ Found existing Wallet profile - upgrading to Farcaster');
@@ -792,7 +774,7 @@ export const syncPlayerProfile = async (identity) => {
             avatar_url: avatarUrl || walletProfile.avatar_url,
           })
           .eq('user_id', walletAddress.toLowerCase());
-        
+
         // 🔥 Jeśli wcześniej na tym urządzeniu był guest, też go scalamy do konta FC
         if (previousGuestId) {
           const guestUserId = `guest:${previousGuestId}`;
@@ -800,18 +782,18 @@ export const syncPlayerProfile = async (identity) => {
             .from('game_sessions')
             .update({ user_id: userId })
             .eq('user_id', guestUserId);
-          
+
           await supabase
             .from('player_profiles')
             .delete()
             .eq('user_id', guestUserId);
         }
-        
+
         console.log('✅ Upgraded wallet profile to Farcaster');
         return canonicalUserId;
       }
     }
-    
+
     // 2B. Sprawdź czy profil już istnieje (standard flow)
     const { data: existing } = await supabase
       .from('player_profiles')
@@ -830,7 +812,7 @@ export const syncPlayerProfile = async (identity) => {
           farcaster_username: username || existing.farcaster_username,
         })
         .eq('user_id', userId);
-      
+
       // 🔥 Jeśli user się zalogował, a wcześniej był guest na tym urządzeniu – przenieś sesje guest -> to konto
       if (previousGuestId && (farcasterFid || walletAddress)) {
         const guestUserId = `guest:${previousGuestId}`;
@@ -838,13 +820,13 @@ export const syncPlayerProfile = async (identity) => {
           .from('game_sessions')
           .update({ user_id: userId })
           .eq('user_id', guestUserId);
-        
+
         await supabase
           .from('player_profiles')
           .delete()
           .eq('user_id', guestUserId);
       }
-      
+
       return existing.canonical_user_id;
     }
 
@@ -856,7 +838,7 @@ export const syncPlayerProfile = async (identity) => {
         .eq('wallet_address', walletAddress.toLowerCase())
         .not('farcaster_fid', 'is', null)
         .single();
-      
+
       if (fcProfile) {
         // Użytkownik ma już konto Farcaster - nie twórz nowego, zwróć istniejący
         console.log('✅ Wallet matches existing Farcaster account');
@@ -887,13 +869,13 @@ export const syncPlayerProfile = async (identity) => {
         .from('game_sessions')
         .update({ user_id: userId })
         .eq('user_id', guestUserId);
-      
+
       await supabase
         .from('player_profiles')
         .delete()
         .eq('user_id', guestUserId);
     }
-    
+
     console.log('✅ Player profile synced:', { userId, canonicalUserId });
     return canonicalUserId;
   } catch (error) {
@@ -908,9 +890,9 @@ export const syncPlayerProfile = async (identity) => {
  */
 export const saveGameSession = async (session) => {
   const { userId, mode, score, applesEaten } = session;
-  
+
   console.log('🎮 Attempting to save game session:', { userId, mode, score, applesEaten });
-  
+
   if (!userId || !mode || score === undefined) {
     console.error('❌ saveGameSession: Missing required fields', session);
     return;
@@ -931,12 +913,12 @@ export const saveGameSession = async (session) => {
       console.error('❌ Supabase insert error:', error);
       throw error;
     }
-    
+
     console.log('✅ Game session saved to DB:', data);
-    
+
     // ❌ USUNIĘTE: Nie aktualizujemy localStorage tutaj, bo to powoduje podwójne zliczanie
     // localStorage będzie zaktualizowany przez getPlayerStats() który sumuje z game_sessions
-    
+
   } catch (error) {
     console.error('❌ saveGameSession error:', error);
   }
@@ -997,8 +979,8 @@ export const getDailyStatus = async (walletAddress) => {
       // Minęło więcej niż 1 dzień (i to nie jest pierwsze uruchomienie) -> STREAK ZERWANY!
       // Wyjątek: jeśli streak to 0, to znaczy że dopiero zaczyna lub już zresetował.
       if (status.streak > 0) {
-          status.canClaim = false; 
-          status.isMissed = true; 
+        status.canClaim = false;
+        status.isMissed = true;
       }
     }
   }
@@ -1014,7 +996,7 @@ export const getDailyStatus = async (walletAddress) => {
 export const claimDaily = async (walletAddress, canonicalId = null) => {
   const today = new Date().toISOString();
   const now = new Date();
-  
+
   // A. GOŚĆ (brak wallet i brak canonicalId)
   if (!walletAddress && !canonicalId) {
     const current = getStorageItem('snake_daily_status', { streak: 0, lastClaim: null });
@@ -1026,17 +1008,17 @@ export const claimDaily = async (walletAddress, canonicalId = null) => {
     }
 
     let newStreak = current.streak + 1;
-    
+
     // Reset jeśli zerwany (gość nie ma opcji naprawy za jabłka bo nie ma bazy)
     if (lastDate && !isYesterday(now, lastDate) && !isSameDay(now, lastDate)) {
-        newStreak = 1;
+      newStreak = 1;
     }
 
     const rewardIndex = (newStreak - 1) % 7;
     const reward = DAILY_REWARDS[rewardIndex];
 
     setStorageItem('snake_daily_status', { streak: newStreak, lastClaim: today });
-    
+
     // Dodaj jabłka do portfela gościa
     const currentApples = Number(getStorageItem(STORAGE_KEYS.TOTAL_APPLES, 0)) || 0;
     const nextBalance = currentApples + reward;
@@ -1064,7 +1046,7 @@ export const claimDaily = async (walletAddress, canonicalId = null) => {
   }
 
   let newStreak = current.streak + 1;
-  
+
   // Reset jeśli zerwany
   // (dla zalogowanych już zablokowane powyżej — nie resetujemy tutaj)
 
@@ -1073,7 +1055,7 @@ export const claimDaily = async (walletAddress, canonicalId = null) => {
 
   // Zapisz w localStorage
   setStorageItem('snake_daily_status', { streak: newStreak, lastClaim: today });
-  
+
   // Dodaj jabłka do localStorage
   const currentApples = Number(getStorageItem(STORAGE_KEYS.TOTAL_APPLES, 0)) || 0;
   const nextBalance = currentApples + reward;
@@ -1087,7 +1069,7 @@ export const claimDaily = async (walletAddress, canonicalId = null) => {
   try {
     // Użyj canonicalId bezpośrednio (lub znajdź po wallet_address jako fallback)
     let userId = canonicalId;
-    
+
     if (!userId && walletAddress) {
       // Fallback: znajdź przez wallet_address
       const { data: profile } = await supabase
@@ -1097,7 +1079,7 @@ export const claimDaily = async (walletAddress, canonicalId = null) => {
         .single();
       userId = profile?.user_id;
     }
-    
+
     if (userId) {
       // Zapisz claim do bazy
       const { data, error: claimError } = await supabase
@@ -1109,7 +1091,7 @@ export const claimDaily = async (walletAddress, canonicalId = null) => {
           claimed_at: today
         })
         .select();
-      
+
       if (claimError) {
         console.error('❌ Failed to save daily claim to DB:', claimError);
         // Nie przerywamy - localStorage już został zaktualizowany
@@ -1128,101 +1110,101 @@ export const claimDaily = async (walletAddress, canonicalId = null) => {
 };
 
 export const repairStreakWithApples = async (walletAddress, canonicalId = null) => {
-    if (!walletAddress && !canonicalId) return false; // Goście nie mogą naprawiać
+  if (!walletAddress && !canonicalId) return false; // Goście nie mogą naprawiać
 
-    const cost = 500;
-    
-    // 🔥 NOWE: Sprawdź saldo BEZPOŚREDNIO z bazy (nie localStorage!)
-    // To zapobiega wydawaniu więcej niż gracz faktycznie ma w rankingu
-    let currentApples = 0;
-    
+  const cost = 500;
+
+  // 🔥 NOWE: Sprawdź saldo BEZPOŚREDNIO z bazy (nie localStorage!)
+  // To zapobiega wydawaniu więcej niż gracz faktycznie ma w rankingu
+  let currentApples = 0;
+
+  if (canonicalId) {
+    // Pobierz z widoku rankingu (to jest źródło prawdy)
+    const { data, error } = await supabase
+      .from('leaderboard_total_apples')
+      .select('total_apples')
+      .eq('canonical_user_id', canonicalId)
+      .single();
+
+    if (!error && data) {
+      currentApples = Math.max(0, Number(data.total_apples) || 0);
+    }
+  }
+
+  console.log(`🍎 Daily Check-in: Repair attempt. User has: ${currentApples} (from DB), Need: ${cost}`);
+
+  if (currentApples < cost) {
+    console.log(`🍎 Daily Check-in: Not enough apples to repair streak. User has: ${currentApples} Need: ${cost}`);
+    return false;
+  }
+
+  // Odejmij 500 jabłek (przez ledger "spent", żeby koszt nie znikał po późniejszym max(local, db))
+  const prevSpent = Math.max(0, Number(getStorageItem('snake_apples_spent', 0)) || 0);
+  const nextSpent = prevSpent + cost;
+  setStorageItem('snake_apples_spent', nextSpent);
+
+  // Utrzymuj spójne saldo w localStorage
+  // Liczymy gross jako: saldo aktualny + już wydane jabłka
+  const gross = Math.max(0, Number(getStorageItem('snake_total_apples_gross', 0)) || 0);
+  // Jeśli gross jest 0 (pierwszy run), ustawiamy go na currentApples + prevSpent
+  const finalGross = gross > 0 ? gross : (currentApples + prevSpent);
+  const nextBalance = Math.max(0, finalGross - nextSpent);
+  setStorageItem('snake_total_apples_gross', finalGross);
+  setStorageItem(STORAGE_KEYS.TOTAL_APPLES, nextBalance);
+
+  // Napraw streak w localStorage (resetujemy lastClaim, żeby mógł teraz claimować)
+  const current = getStorageItem('snake_daily_status', { streak: 0 });
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  setStorageItem('snake_daily_status', {
+    streak: current.streak, // Zachowaj obecny streak
+    lastClaim: yesterday.toISOString() // Ustaw na "wczoraj", żeby dzisiaj mógł claimować
+  });
+
+  // 🔥 NOWE: Zapisz wydatek do bazy (dla rankingu)
+  // Gracz MUSI czuć karę za przegapienie streaka!
+  try {
+    let profileQuery = supabase
+      .from('player_profiles')
+      .select('user_id');
+
     if (canonicalId) {
-        // Pobierz z widoku rankingu (to jest źródło prawdy)
-        const { data, error } = await supabase
-            .from('leaderboard_total_apples')
-            .select('total_apples')
-            .eq('canonical_user_id', canonicalId)
-            .single();
-        
-        if (!error && data) {
-            currentApples = Math.max(0, Number(data.total_apples) || 0);
-        }
-    }
-    
-    console.log(`🍎 Daily Check-in: Repair attempt. User has: ${currentApples} (from DB), Need: ${cost}`);
-    
-    if (currentApples < cost) {
-        console.log(`🍎 Daily Check-in: Not enough apples to repair streak. User has: ${currentApples} Need: ${cost}`);
-        return false;
+      profileQuery = profileQuery.eq('canonical_user_id', canonicalId);
+    } else if (walletAddress) {
+      profileQuery = profileQuery.eq('wallet_address', walletAddress.toLowerCase());
     }
 
-    // Odejmij 500 jabłek (przez ledger "spent", żeby koszt nie znikał po późniejszym max(local, db))
-    const prevSpent = Math.max(0, Number(getStorageItem('snake_apples_spent', 0)) || 0);
-    const nextSpent = prevSpent + cost;
-    setStorageItem('snake_apples_spent', nextSpent);
+    const { data: profile } = await profileQuery.single();
 
-    // Utrzymuj spójne saldo w localStorage
-    // Liczymy gross jako: saldo aktualny + już wydane jabłka
-    const gross = Math.max(0, Number(getStorageItem('snake_total_apples_gross', 0)) || 0);
-    // Jeśli gross jest 0 (pierwszy run), ustawiamy go na currentApples + prevSpent
-    const finalGross = gross > 0 ? gross : (currentApples + prevSpent);
-    const nextBalance = Math.max(0, finalGross - nextSpent);
-    setStorageItem('snake_total_apples_gross', finalGross);
-    setStorageItem(STORAGE_KEYS.TOTAL_APPLES, nextBalance);
-    
-    // Napraw streak w localStorage (resetujemy lastClaim, żeby mógł teraz claimować)
-    const current = getStorageItem('snake_daily_status', { streak: 0 });
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    
-    setStorageItem('snake_daily_status', { 
-        streak: current.streak, // Zachowaj obecny streak
-        lastClaim: yesterday.toISOString() // Ustaw na "wczoraj", żeby dzisiaj mógł claimować
-    });
-    
-    // 🔥 NOWE: Zapisz wydatek do bazy (dla rankingu)
-    // Gracz MUSI czuć karę za przegapienie streaka!
-    try {
-        let profileQuery = supabase
-            .from('player_profiles')
-            .select('user_id');
+    if (profile?.user_id) {
+      const { error: transactionError } = await supabase
+        .from('apple_transactions')
+        .insert({
+          user_id: profile.user_id,
+          amount: -cost, // ujemna wartość = wydatek
+          transaction_type: 'repair_streak',
+          description: `Repaired streak at day ${current.streak}`
+        });
 
-        if (canonicalId) {
-            profileQuery = profileQuery.eq('canonical_user_id', canonicalId);
-        } else if (walletAddress) {
-            profileQuery = profileQuery.eq('wallet_address', walletAddress.toLowerCase());
-        }
-
-        const { data: profile } = await profileQuery.single();
-        
-        if (profile?.user_id) {
-            const { error: transactionError } = await supabase
-                .from('apple_transactions')
-                .insert({
-                    user_id: profile.user_id,
-                    amount: -cost, // ujemna wartość = wydatek
-                    transaction_type: 'repair_streak',
-                    description: `Repaired streak at day ${current.streak}`
-                });
-            
-            if (transactionError) {
-                console.error('❌ Failed to save repair transaction to DB:', transactionError);
-                // Nie przerywamy - localStorage już został zaktualizowany
-            } else {
-                console.log('✅ Repair transaction saved to DB:', { amount: -cost });
-            }
-        }
-    } catch (error) {
-        console.error('❌ Error saving repair transaction to DB:', error);
+      if (transactionError) {
+        console.error('❌ Failed to save repair transaction to DB:', transactionError);
+        // Nie przerywamy - localStorage już został zaktualizowany
+      } else {
+        console.log('✅ Repair transaction saved to DB:', { amount: -cost });
+      }
     }
-    
-    console.log('✅ Streak repaired successfully! User can now claim today.');
-    return true;
+  } catch (error) {
+    console.error('❌ Error saving repair transaction to DB:', error);
+  }
+
+  console.log('✅ Streak repaired successfully! User can now claim today.');
+  return true;
 };
 
 export const resetStreakToZero = async (walletAddress) => {
-    // Gracz poddał się i nie płaci. Resetujemy streak do 0.
-    setStorageItem('snake_daily_status', { streak: 0, lastClaim: null });
-    console.log('🔄 Streak reset to 0');
-    return true;
+  // Gracz poddał się i nie płaci. Resetujemy streak do 0.
+  setStorageItem('snake_daily_status', { streak: 0, lastClaim: null });
+  console.log('🔄 Streak reset to 0');
+  return true;
 };
