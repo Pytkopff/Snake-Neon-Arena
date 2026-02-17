@@ -77,6 +77,13 @@ export default function MintBadgeButton({
             const hashToShow = capabilityId || txHash;
             console.log("✅ Mint Success!", hashToShow);
             setSuccessHash(hashToShow);
+
+            // Force UserOp ID visibility via Prompt (Robust Copy)
+            // This ensures user can get the ID even if parent unmounts this component or shows a modal.
+            setTimeout(() => {
+                window.prompt("SKOPIUJ ID PONIŻEJ DO CHECKERA (Zakładka UserOperation AA):", hashToShow);
+            }, 500);
+
             if (onSuccess) onSuccess(hashToShow);
         }
     }, [isConfirmed, txHash, capabilityId, onSuccess]);
