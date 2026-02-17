@@ -18,7 +18,7 @@ import {
 import { resolveWalletProfile } from './utils/nameResolver';
 
 // 🔥 IMPORTUJ MANAGERA
-import SoundManager from './utils/SoundManager'; 
+import SoundManager from './utils/SoundManager';
 
 import GameBoard from './components/GameBoard';
 import HUD from './components/HUD';
@@ -34,7 +34,7 @@ function App() {
   const [farcasterUser, setFarcasterUser] = useState(null);
   const [isSDKLoaded, setIsSDKLoaded] = useState(false);
   const [quickAuthToken, setQuickAuthToken] = useState(null);
-  
+
   const { address, isConnected } = useAccount();
   const particlesRef = useRef();
 
@@ -44,7 +44,7 @@ function App() {
   const [showSkinSelector, setShowSkinSelector] = useState(false);
   const [unlockNotification, setUnlockNotification] = useState(null);
   const [showDailyCheckIn, setShowDailyCheckIn] = useState(false);
-  
+
   // Game Data
   const [gameMode, setGameMode] = useState('classic');
   const [bestScore, setBestScore] = useState(0);
@@ -58,6 +58,7 @@ function App() {
   const [shareCopied, setShareCopied] = useState(false);
   const prevWalletConnectedRef = useRef(false);
   const prevWalletAddressRef = useRef(null);
+  const processedGameOver = useRef(false);
 
   // Game State
   const [isPlaying, setIsPlaying] = useState(false);
@@ -108,97 +109,97 @@ function App() {
     return () => { isActive = false; };
   }, [address]);
 
- useEffect(() => {
-  const initProfile = async () => {
-    // 🔥 CRITICAL: In Farcaster mini-app (web), SDK context can arrive a bit later.
-    // If we create a guest profile before SDK resolves, we end up saving sessions as `guest:*`
-    // which then show up as duplicate "Anonymous" entries with the same best score.
-    // So: if wallet isn't connected and SDK isn't loaded yet, wait.
-    if (!address && !isSDKLoaded) {
-      console.log('⏳ Waiting for Farcaster SDK context before creating guest identity...');
-      return;
-    }
-
-    // Stary system (zachowany dla misji i daily rewards)
-    if (address) {
-      const lastAddress = localStorage.getItem('snake_last_wallet');
-      if (lastAddress && lastAddress !== address) {
-        ['snake_unlocked_skins', 'snake_total_apples', 'snake_total_games',
-         'snake_best_score', 'snake_best_score_walls', 'snake_best_score_chill'
-        ].forEach(k => localStorage.removeItem(k));
-        
-        setIsPlaying(false);
-        setIsPaused(true);
-        setUnlockedSkins(['default']);
-        setPlayerStats({ totalApples: 0, totalGames: 0, bestScore: 0, bestScoreClassic: 0, bestScoreWalls: 0, bestScoreChill: 0 });
+  useEffect(() => {
+    const initProfile = async () => {
+      // 🔥 CRITICAL: In Farcaster mini-app (web), SDK context can arrive a bit later.
+      // If we create a guest profile before SDK resolves, we end up saving sessions as `guest:*`
+      // which then show up as duplicate "Anonymous" entries with the same best score.
+      // So: if wallet isn't connected and SDK isn't loaded yet, wait.
+      if (!address && !isSDKLoaded) {
+        console.log('⏳ Waiting for Farcaster SDK context before creating guest identity...');
+        return;
       }
-      localStorage.setItem('snake_last_wallet', address);
-      
-      // 1. Stara synchronizacja (zostawiamy dla bezpieczeństwa - stary system)
-      await syncProfile(address);
-    }
 
-    // 🔥 NOWY SYSTEM: Sync do player_profiles (TEXT-based identity)
-    // Utrzymujemy guestId w localStorage, ale przy logowaniu NAJPIERW scalamy sesje guest -> konto główne,
-    // a dopiero potem czyścimy guestId (inaczej zostają sieroty w DB i w rankingu widać "Anonymous").
-    const savedGuestId = localStorage.getItem('snake_guest_id');
-    const isLoggedIn = Boolean(address || farcasterUser?.fid);
-    let guestId = null;
-    let previousGuestId = null;
-    
-    if (!isLoggedIn) {
-      guestId = savedGuestId || crypto.randomUUID();
-      if (!savedGuestId) localStorage.setItem('snake_guest_id', guestId);
-    } else {
-      // jeśli wcześniej grał jako guest na tym urządzeniu, przekaż do merge
-      previousGuestId = savedGuestId || null;
-    }
-    
-    const canonicalId = await syncPlayerProfile({
-      farcasterFid: farcasterUser?.fid,
-      walletAddress: address,
-      guestId: guestId,
-      previousGuestId: previousGuestId,
-      username: farcasterUser?.username,
-      avatarUrl: farcasterUser?.fid ? farcasterUser?.pfpUrl : walletProfile?.avatarUrl,
-      displayName: farcasterUser?.fid ? farcasterUser?.username : walletProfile?.displayName,
-    });
-    
-    console.log('🔑 Current Canonical ID set to:', canonicalId);
-    setCurrentCanonicalId(canonicalId);
-    
-    // 🔥 FIX: Detect identity change and clear local scores to prevent contamination
-    // Prevents "Split Personality" bug: old scores (e.g. pytek=5385) leaking to a new profile
-    // (e.g. Pulse Shark) when user opens game in a different context (browser without Farcaster SDK)
-    if (canonicalId) {
-      const previousCanonicalId = localStorage.getItem('snake_canonical_id');
-      if (previousCanonicalId && previousCanonicalId !== canonicalId) {
-        console.warn('🧹 Identity changed! Clearing local scores to prevent contamination.');
-        console.warn(`   Previous: ${previousCanonicalId} → Current: ${canonicalId}`);
-        [
-          'snake_best_score', 'snake_best_score_walls', 'snake_best_score_chill',
-          'snake_total_apples', 'snake_total_apples_gross', 'snake_apples_spent',
-          'snake_total_games'
-        ].forEach(k => localStorage.removeItem(k));
+      // Stary system (zachowany dla misji i daily rewards)
+      if (address) {
+        const lastAddress = localStorage.getItem('snake_last_wallet');
+        if (lastAddress && lastAddress !== address) {
+          ['snake_unlocked_skins', 'snake_total_apples', 'snake_total_games',
+            'snake_best_score', 'snake_best_score_walls', 'snake_best_score_chill'
+          ].forEach(k => localStorage.removeItem(k));
+
+          setIsPlaying(false);
+          setIsPaused(true);
+          setUnlockedSkins(['default']);
+          setPlayerStats({ totalApples: 0, totalGames: 0, bestScore: 0, bestScoreClassic: 0, bestScoreWalls: 0, bestScoreChill: 0 });
+        }
+        localStorage.setItem('snake_last_wallet', address);
+
+        // 1. Stara synchronizacja (zostawiamy dla bezpieczeństwa - stary system)
+        await syncProfile(address);
       }
-      localStorage.setItem('snake_canonical_id', canonicalId);
-    }
 
-    // dopiero po udanym sync/merge czyścimy guestId, żeby nie tworzyć kolejnych guest profili po zalogowaniu
-    if (isLoggedIn && canonicalId) {
-      localStorage.removeItem('snake_guest_id');
-    }
+      // 🔥 NOWY SYSTEM: Sync do player_profiles (TEXT-based identity)
+      // Utrzymujemy guestId w localStorage, ale przy logowaniu NAJPIERW scalamy sesje guest -> konto główne,
+      // a dopiero potem czyścimy guestId (inaczej zostają sieroty w DB i w rankingu widać "Anonymous").
+      const savedGuestId = localStorage.getItem('snake_guest_id');
+      const isLoggedIn = Boolean(address || farcasterUser?.fid);
+      let guestId = null;
+      let previousGuestId = null;
 
-    // Pobierz statystyki (używamy canonicalId jeśli dostępny, inaczej address)
-    // Total Apples i Total Games są globalne i nie zależą od trybu
-    const stats = await getPlayerStats(address, canonicalId);
-    setPlayerStats(stats);
-    const skins = await getUnlockedSkins(address);
-    setUnlockedSkins(skins);
-    setBestScore(getBestScore(gameMode));
-  };
-  initProfile();
-}, [isConnected, address, farcasterUser, isSDKLoaded, walletProfile]); // ❌ USUNIĘTE gameMode - nie resetuj statystyk przy zmianie trybu
+      if (!isLoggedIn) {
+        guestId = savedGuestId || crypto.randomUUID();
+        if (!savedGuestId) localStorage.setItem('snake_guest_id', guestId);
+      } else {
+        // jeśli wcześniej grał jako guest na tym urządzeniu, przekaż do merge
+        previousGuestId = savedGuestId || null;
+      }
+
+      const canonicalId = await syncPlayerProfile({
+        farcasterFid: farcasterUser?.fid,
+        walletAddress: address,
+        guestId: guestId,
+        previousGuestId: previousGuestId,
+        username: farcasterUser?.username,
+        avatarUrl: farcasterUser?.fid ? farcasterUser?.pfpUrl : walletProfile?.avatarUrl,
+        displayName: farcasterUser?.fid ? farcasterUser?.username : walletProfile?.displayName,
+      });
+
+      console.log('🔑 Current Canonical ID set to:', canonicalId);
+      setCurrentCanonicalId(canonicalId);
+
+      // 🔥 FIX: Detect identity change and clear local scores to prevent contamination
+      // Prevents "Split Personality" bug: old scores (e.g. pytek=5385) leaking to a new profile
+      // (e.g. Pulse Shark) when user opens game in a different context (browser without Farcaster SDK)
+      if (canonicalId) {
+        const previousCanonicalId = localStorage.getItem('snake_canonical_id');
+        if (previousCanonicalId && previousCanonicalId !== canonicalId) {
+          console.warn('🧹 Identity changed! Clearing local scores to prevent contamination.');
+          console.warn(`   Previous: ${previousCanonicalId} → Current: ${canonicalId}`);
+          [
+            'snake_best_score', 'snake_best_score_walls', 'snake_best_score_chill',
+            'snake_total_apples', 'snake_total_apples_gross', 'snake_apples_spent',
+            'snake_total_games'
+          ].forEach(k => localStorage.removeItem(k));
+        }
+        localStorage.setItem('snake_canonical_id', canonicalId);
+      }
+
+      // dopiero po udanym sync/merge czyścimy guestId, żeby nie tworzyć kolejnych guest profili po zalogowaniu
+      if (isLoggedIn && canonicalId) {
+        localStorage.removeItem('snake_guest_id');
+      }
+
+      // Pobierz statystyki (używamy canonicalId jeśli dostępny, inaczej address)
+      // Total Apples i Total Games są globalne i nie zależą od trybu
+      const stats = await getPlayerStats(address, canonicalId);
+      setPlayerStats(stats);
+      const skins = await getUnlockedSkins(address);
+      setUnlockedSkins(skins);
+      setBestScore(getBestScore(gameMode));
+    };
+    initProfile();
+  }, [isConnected, address, farcasterUser, isSDKLoaded, walletProfile]); // ❌ USUNIĘTE gameMode - nie resetuj statystyk przy zmianie trybu
 
   // ============================================
   // 🔒 SECURITY FIX: Reset Guest Identity on Wallet Disconnect
@@ -261,40 +262,40 @@ function App() {
 
   // --- Farcaster Context ---
   useEffect(() => {
-  const load = async () => {
-    try {
-      await sdk.actions.ready({ disableNativeGestures: true });
-      const context = await sdk.context;
-      const user = context?.user || { username: 'PlayerOne', pfpUrl: 'https://i.imgur.com/Kbd74kI.png' };
-      setFarcasterUser(user);
+    const load = async () => {
+      try {
+        await sdk.actions.ready({ disableNativeGestures: true });
+        const context = await sdk.context;
+        const user = context?.user || { username: 'PlayerOne', pfpUrl: 'https://i.imgur.com/Kbd74kI.png' };
+        setFarcasterUser(user);
 
-      // Quick Auth (token for future backend verification)
-      if (sdk?.quickAuth?.getToken) {
-        try {
-          const token = await sdk.quickAuth.getToken();
-          setQuickAuthToken(token);
-        } catch (err) {
-          console.warn('Quick Auth token fetch failed:', err);
+        // Quick Auth (token for future backend verification)
+        if (sdk?.quickAuth?.getToken) {
+          try {
+            const token = await sdk.quickAuth.getToken();
+            setQuickAuthToken(token);
+          } catch (err) {
+            console.warn('Quick Auth token fetch failed:', err);
+          }
         }
+
+        // ❌ REMOVED: Stara synchronizacja do player_profiles_v2 (nieużywana)
+        // Używamy tylko syncPlayerProfile() w initProfile useEffect
+
+      } catch (e) {
+        setFarcasterUser({ username: 'Player', pfpUrl: 'https://via.placeholder.com/40' });
+      } finally {
+        setIsSDKLoaded(true);
       }
-
-      // ❌ REMOVED: Stara synchronizacja do player_profiles_v2 (nieużywana)
-      // Używamy tylko syncPlayerProfile() w initProfile useEffect
-
-    } catch (e) { 
-      setFarcasterUser({ username: 'Player', pfpUrl: 'https://via.placeholder.com/40' }); 
-    } finally {
-      setIsSDKLoaded(true);
-    }
-  };
-  if (sdk && !isSDKLoaded) load();
-}, [isSDKLoaded, address]);
+    };
+    if (sdk && !isSDKLoaded) load();
+  }, [isSDKLoaded, address]);
 
   // --- Game Logic ---
   const {
     snake, food, score, applesCollected, gameOver, activePowerUps, gamePowerUpItem,
     combo, maxCombo, timeLeft, currentSpeed,
-    startGame, resetGame, changeDirection, snakeDirection 
+    startGame, resetGame, changeDirection, snakeDirection
   } = useSnakeGame(isPaused);
 
   const prevApplesRef = useRef(applesCollected);
@@ -304,7 +305,7 @@ function App() {
   // --- FX & Sound Triggers ---
   useEffect(() => {
     if (!isPlaying) return;
-    
+
     if (applesCollected > 0 && applesCollected > prevApplesRef.current) {
       if (particlesRef.current && prevFoodRef.current) {
         particlesRef.current.explode(prevFoodRef.current.x, prevFoodRef.current.y, '#ff3333');
@@ -333,7 +334,7 @@ function App() {
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
     const handleBlur = () => {
-       if (isPlaying && !isPaused && !gameOver) setIsPaused(true);
+      if (isPlaying && !isPaused && !gameOver) setIsPaused(true);
     };
     window.addEventListener("blur", handleBlur);
     return () => {
@@ -344,7 +345,8 @@ function App() {
 
   // Game Over Handler
   useEffect(() => {
-    if (gameOver) {
+    if (gameOver && !processedGameOver.current) {
+      processedGameOver.current = true;
       setIsPlaying(false);
       const handleGameOver = async () => {
         // 🔥 NOWY SYSTEM: Zapisz sesję do game_sessions NAJPIERW (żeby checkUnlocks widział nowe dane)
@@ -359,18 +361,18 @@ function App() {
 
         // Aktualizuj best score
         await updatePlayerStats(applesCollected, score, address, gameMode);
-        
+
         // Pobierz świeże statystyki z bazy (z game_sessions) - to jest jedyne źródło prawdy
         const freshStats = await getPlayerStats(address, currentCanonicalId);
         setPlayerStats(freshStats);
-        
+
         // Sprawdź odblokowywanie skinów (z aktualnymi statystykami z bazy)
         const newUnlocks = await checkUnlocks(freshStats, address);
-        
+
         if (newUnlocks.length > 0) {
           const updatedSkins = await getUnlockedSkins(address);
           setUnlockedSkins(updatedSkins);
-          
+
           setUnlockNotification(newUnlocks);
         }
         if (score > bestScore) setBestScore(score);
@@ -397,10 +399,11 @@ function App() {
     }
 
     SoundManager.play('click'); // To też pomaga odblokować audio
-    
+
     // Reszta logiki
     setIsPlaying(true);
     setIsPaused(false);
+    processedGameOver.current = false;
     setNotifiedMissions([]);
     startGame(gameMode);
   };
@@ -410,11 +413,11 @@ function App() {
   // ============================================
   const togglePause = () => {
     if (isPaused) {
-       // Wznawianie gry - też traktujemy jako gest użytkownika
-       if (gameMode === 'chill') {
-          SoundManager.startMusicOnUserGesture();
-       }
-       SoundManager.play('click');
+      // Wznawianie gry - też traktujemy jako gest użytkownika
+      if (gameMode === 'chill') {
+        SoundManager.startMusicOnUserGesture();
+      }
+      SoundManager.play('click');
     }
     setIsPaused(!isPaused);
   };
@@ -424,11 +427,11 @@ function App() {
     const handleKey = (e) => {
       if (!isPlaying || isPaused) return;
       if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) e.preventDefault();
-      switch(e.key) {
-        case 'ArrowUp': case 'w': changeDirection({x: 0, y: -1}); break;
-        case 'ArrowDown': case 's': changeDirection({x: 0, y: 1}); break;
-        case 'ArrowLeft': case 'a': changeDirection({x: -1, y: 0}); break;
-        case 'ArrowRight': case 'd': changeDirection({x: 1, y: 0}); break;
+      switch (e.key) {
+        case 'ArrowUp': case 'w': changeDirection({ x: 0, y: -1 }); break;
+        case 'ArrowDown': case 's': changeDirection({ x: 0, y: 1 }); break;
+        case 'ArrowLeft': case 'a': changeDirection({ x: -1, y: 0 }); break;
+        case 'ArrowRight': case 'd': changeDirection({ x: 1, y: 0 }); break;
       }
     };
     window.addEventListener('keydown', handleKey);
@@ -445,15 +448,15 @@ function App() {
     const dx = touchStart.current.x - touchEnd.current.x;
     const dy = touchStart.current.y - touchEnd.current.y;
     if (Math.abs(dx) < 40 && Math.abs(dy) < 40) return;
-    if (Math.abs(dx) > Math.abs(dy)) changeDirection({x: dx > 0 ? -1 : 1, y: 0});
-    else changeDirection({x: 0, y: dy > 0 ? -1 : 1});
+    if (Math.abs(dx) > Math.abs(dy)) changeDirection({ x: dx > 0 ? -1 : 1, y: 0 });
+    else changeDirection({ x: 0, y: dy > 0 ? -1 : 1 });
   };
 
   // --- Mission System ---
   useEffect(() => {
     if (!isPlaying) return;
     const currentTotalApples = (playerStats.totalApples || 0) + applesCollected;
-    
+
     MISSIONS.forEach(mission => {
       const storedNotified = localStorage.getItem('snake_notified_missions');
       const alreadyNotified = storedNotified ? JSON.parse(storedNotified) : [];
@@ -479,18 +482,18 @@ function App() {
         const doubleCheck = localStorage.getItem('snake_notified_missions');
         const doubleCheckArray = doubleCheck ? JSON.parse(doubleCheck) : [];
         if (doubleCheckArray.includes(mission.id)) return;
-        
+
         let rewardText = mission.title;
-        if(mission.rewardType === 'skin') {
+        if (mission.rewardType === 'skin') {
           const s = SKINS.find(sk => sk.id === mission.rewardId);
-          if(s) rewardText = s.name;
+          if (s) rewardText = s.name;
         } else if (mission.rewardType === 'badge') {
           rewardText = `Badge: ${mission.title}`;
         }
-        
+
         const updatedNotified = [...doubleCheckArray, mission.id];
         localStorage.setItem('snake_notified_missions', JSON.stringify(updatedNotified));
-        
+
         setUnlockNotification([rewardText]);
         SoundManager.play('unlock');
         setNotifiedMissions(updatedNotified);
@@ -500,16 +503,16 @@ function App() {
 
   // Responsive Grid
   const getCellSize = () => {
-    const w = window.innerWidth; 
-    const h = window.innerHeight; 
+    const w = window.innerWidth;
+    const h = window.innerHeight;
     const isDesktop = w > 1024;
     const maxW = Math.min(w - 32, isDesktop ? 500 : 420);
     const maxH = isDesktop ? 600 : (h * 0.45);
     return Math.min(Math.floor(maxW / GRID_SIZE), Math.floor(maxH / GRID_SIZE));
   };
-  
+
   const [cellSize, setCellSize] = useState(getCellSize());
-  
+
   useEffect(() => {
     const handleResize = () => setCellSize(getCellSize());
     window.addEventListener('resize', handleResize);
@@ -531,36 +534,36 @@ function App() {
 
   return (
     <div className="h-[100dvh] w-full flex items-center justify-center bg-[#0A0E27] text-white overflow-hidden touch-none relative">
-      
+
       {/* DESKTOP LEFT PANEL */}
       <div className="hidden lg:flex flex-col justify-center gap-6 w-72 h-[80vh] p-6 glass rounded-l-2xl border-r-0 border-white/10 z-10 transition-all hover:translate-x-1">
-         <div className="text-neon-blue font-bold tracking-widest text-sm mb-2">YOUR CAREER</div>
+        <div className="text-neon-blue font-bold tracking-widest text-sm mb-2">YOUR CAREER</div>
         <div className="bg-black/30 p-4 rounded-xl border border-white/5 space-y-4">
-           <div><div className="text-xs text-gray-400">Total Apples</div><div className="text-2xl font-bold text-red-400">{playerStats.totalApples} 🍎</div></div>
-           <div><div className="text-xs text-gray-400">Games Played</div><div className="text-2xl font-bold text-purple-400">{playerStats.totalGames} 🎮</div></div>
-           <div><div className="text-xs text-gray-400">Skins Unlocked</div><div className="text-2xl font-bold text-yellow-400">{unlockedSkins.length} / {SKINS.length}</div></div>
-           <div className="pt-2 border-t border-white/10">
-             <div className="text-[10px] text-gray-500 mb-1">CLOUD SAVE STATUS</div>
-             <div className={`text-xs font-bold ${isConnected ? 'text-green-400' : 'text-gray-400'}`}>
-               {isConnected ? '🟢 ONLINE (Saved)' : '⚪ OFFLINE (Local)'}
-             </div>
-           </div>
+          <div><div className="text-xs text-gray-400">Total Apples</div><div className="text-2xl font-bold text-red-400">{playerStats.totalApples} 🍎</div></div>
+          <div><div className="text-xs text-gray-400">Games Played</div><div className="text-2xl font-bold text-purple-400">{playerStats.totalGames} 🎮</div></div>
+          <div><div className="text-xs text-gray-400">Skins Unlocked</div><div className="text-2xl font-bold text-yellow-400">{unlockedSkins.length} / {SKINS.length}</div></div>
+          <div className="pt-2 border-t border-white/10">
+            <div className="text-[10px] text-gray-500 mb-1">CLOUD SAVE STATUS</div>
+            <div className={`text-xs font-bold ${isConnected ? 'text-green-400' : 'text-gray-400'}`}>
+              {isConnected ? '🟢 ONLINE (Saved)' : '⚪ OFFLINE (Local)'}
+            </div>
+          </div>
         </div>
       </div>
 
       {/* CENTER GAME AREA */}
       <div className="h-full w-full max-w-lg lg:max-w-2xl lg:h-[85vh] lg:border-2 lg:border-neon-blue/30 lg:rounded-2xl lg:shadow-[0_0_50px_rgba(0,240,255,0.15)] lg:bg-black/40 flex flex-col relative z-20 overflow-hidden">
-        
+
         <AnimatePresence>
           {unlockNotification && (
             <motion.div initial={{ y: -100, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: -100, opacity: 0 }} className="absolute top-4 left-0 right-0 z-[100] flex justify-center px-4">
-               <div className="bg-black/90 border border-neon-blue rounded-xl p-4 shadow-[0_0_30px_rgba(0,240,255,0.3)] flex items-center gap-4 max-w-sm">
-                 <div className="text-3xl">🎁</div>
-                 <div>
-                   <div className="text-neon-blue font-bold text-sm uppercase tracking-wider">Mission Complete!</div>
-                   <div className="text-white text-xs">Unlocked: <span className="text-yellow-400 font-bold">{unlockNotification.join(', ')}</span></div>
-                 </div>
-               </div>
+              <div className="bg-black/90 border border-neon-blue rounded-xl p-4 shadow-[0_0_30px_rgba(0,240,255,0.3)] flex items-center gap-4 max-w-sm">
+                <div className="text-3xl">🎁</div>
+                <div>
+                  <div className="text-neon-blue font-bold text-sm uppercase tracking-wider">Mission Complete!</div>
+                  <div className="text-white text-xs">Unlocked: <span className="text-yellow-400 font-bold">{unlockNotification.join(', ')}</span></div>
+                </div>
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
@@ -569,9 +572,9 @@ function App() {
         {!isPlaying && !gameOver && (
           <div className="flex flex-col h-full w-full px-4 py-6 overflow-y-auto animate-fadeIn scrollbar-hide">
             <h1 className="text-3xl sm:text-4xl font-bold neon-text mb-4 text-center shrink-0">SNAKE NEON ARENA</h1>
-            
+
             <div className="text-center text-neon-blue font-bold tracking-widest text-sm mb-4 -mt-2 animate-pulse">
-               HELLO, {(farcasterUser?.username || walletProfile?.displayName || 'PLAYER').toUpperCase()}! 👾
+              HELLO, {(farcasterUser?.username || walletProfile?.displayName || 'PLAYER').toUpperCase()}! 👾
             </div>
 
             <div className="mb-4 flex justify-center shrink-0">
@@ -610,10 +613,10 @@ function App() {
               <SkinMissionsPanel
                 unlockedSkins={unlockedSkins} currentSkinId={currentSkinId} playerStats={playerStats}
                 onClose={() => setShowSkinSelector(false)}
-                onSelectSkin={(id) => { 
-                   setCurrentSkinId(id); 
-                   setSelectedSkin(id); 
-                   SoundManager.play('click'); 
+                onSelectSkin={(id) => {
+                  setCurrentSkinId(id);
+                  setSelectedSkin(id);
+                  SoundManager.play('click');
                 }}
               />
             ) : (
@@ -643,16 +646,16 @@ function App() {
                 </div>
 
                 <div className="mt-auto w-full pb-4 space-y-2">
-                    <button onClick={handleStart} className="btn-primary w-full py-3 text-lg shadow-lg">🎮 START GAME</button>
-                    <button onClick={() => { setShowDailyCheckIn(true); SoundManager.play('click'); }} className="w-full py-2 rounded-lg border border-neon-blue/30 bg-neon-blue/10 text-neon-blue font-bold tracking-widest hover:bg-neon-blue/20 transition-all flex items-center justify-center gap-2 shadow-[0_0_10px_rgba(0,240,255,0.2)] animate-pulse">
-                        <span>🎁</span> DAILY REWARDS
-                    </button>
-                    <button onClick={() => { setShowSkinSelector(true); SoundManager.play('click'); }} className="btn-secondary w-full py-2 border-neon-blue/30 text-neon-blue">🎨 SKINS & MISSIONS</button>
-                    <div className="flex gap-2">
-                      <button onClick={() => { setShowTutorial(true); SoundManager.play('click'); }} className="btn-secondary flex-1 py-2 text-sm">❓ Help</button>
-                      <button onClick={() => { setShowLeaderboard(true); SoundManager.play('click'); }} className="btn-secondary flex-1 py-2 text-sm">🏆 Ranks</button>
-                    </div>
+                  <button onClick={handleStart} className="btn-primary w-full py-3 text-lg shadow-lg">🎮 START GAME</button>
+                  <button onClick={() => { setShowDailyCheckIn(true); SoundManager.play('click'); }} className="w-full py-2 rounded-lg border border-neon-blue/30 bg-neon-blue/10 text-neon-blue font-bold tracking-widest hover:bg-neon-blue/20 transition-all flex items-center justify-center gap-2 shadow-[0_0_10px_rgba(0,240,255,0.2)] animate-pulse">
+                    <span>🎁</span> DAILY REWARDS
+                  </button>
+                  <button onClick={() => { setShowSkinSelector(true); SoundManager.play('click'); }} className="btn-secondary w-full py-2 border-neon-blue/30 text-neon-blue">🎨 SKINS & MISSIONS</button>
+                  <div className="flex gap-2">
+                    <button onClick={() => { setShowTutorial(true); SoundManager.play('click'); }} className="btn-secondary flex-1 py-2 text-sm">❓ Help</button>
+                    <button onClick={() => { setShowLeaderboard(true); SoundManager.play('click'); }} className="btn-secondary flex-1 py-2 text-sm">🏆 Ranks</button>
                   </div>
+                </div>
               </>
             )}
           </div>
@@ -660,61 +663,61 @@ function App() {
 
         {/* GAME ACTIVE */}
         {(isPlaying || gameOver) && (
-          <div className="h-[100dvh] w-full flex flex-col items-center bg-[#0A0E27]" 
-               onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
-            
-            <HUD 
-              score={score} applesCollected={applesCollected} 
-              isPaused={isPaused} onPause={togglePause} 
-              soundEnabled={soundEnabled} onToggleSound={() => setSoundEnabled(!soundEnabled)} 
-              gameMode={gameMode} timeLeft={timeLeft} 
+          <div className="h-[100dvh] w-full flex flex-col items-center bg-[#0A0E27]"
+            onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
+
+            <HUD
+              score={score} applesCollected={applesCollected}
+              isPaused={isPaused} onPause={togglePause}
+              soundEnabled={soundEnabled} onToggleSound={() => setSoundEnabled(!soundEnabled)}
+              gameMode={gameMode} timeLeft={timeLeft}
             />
 
             <ActiveEffects combo={combo} activePowerUps={activePowerUps} />
 
             <div className="flex-1 w-full flex items-center justify-center relative overflow-hidden">
-                <div className="absolute inset-0 z-0">
-                  <Particles ref={particlesRef} />
-                </div>
+              <div className="absolute inset-0 z-0">
+                <Particles ref={particlesRef} />
+              </div>
 
-                <div className="relative z-10">
-                   <GameBoard 
-                     snake={snake} food={food} powerUp={gamePowerUpItem} gridSize={GRID_SIZE} cellSize={cellSize}
-                     userPfp={farcasterUser?.pfpUrl} activePowerUps={activePowerUps} speed={currentSpeed} score={score}
-                     activeSkinColor={activeSkinObj.color} 
-                   />
-                </div>
+              <div className="relative z-10">
+                <GameBoard
+                  snake={snake} food={food} powerUp={gamePowerUpItem} gridSize={GRID_SIZE} cellSize={cellSize}
+                  userPfp={farcasterUser?.pfpUrl} activePowerUps={activePowerUps} speed={currentSpeed} score={score}
+                  activeSkinColor={activeSkinObj.color}
+                />
+              </div>
 
-                {isPaused && !gameOver && (
-                  <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn">
-                      <div className="text-center p-6 glass rounded-xl border border-white/20 shadow-xl min-w-[200px]">
-                        <h2 className="text-3xl font-bold mb-6 text-neon-blue tracking-widest">PAUSED</h2>
-                        <button onClick={togglePause} className="btn-primary w-full py-3 mb-3">RESUME</button>
-                        <button onClick={() => { setIsPlaying(false); setIsPaused(false); resetGame(); SoundManager.stopMusic(); }} className="btn-secondary w-full py-3">QUIT</button>
-                      </div>
-                   </div>
-                )}
+              {isPaused && !gameOver && (
+                <div className="absolute inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 animate-fadeIn">
+                  <div className="text-center p-6 glass rounded-xl border border-white/20 shadow-xl min-w-[200px]">
+                    <h2 className="text-3xl font-bold mb-6 text-neon-blue tracking-widest">PAUSED</h2>
+                    <button onClick={togglePause} className="btn-primary w-full py-3 mb-3">RESUME</button>
+                    <button onClick={() => { setIsPlaying(false); setIsPaused(false); resetGame(); SoundManager.stopMusic(); }} className="btn-secondary w-full py-3">QUIT</button>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="shrink-0 w-full flex justify-center pb-[max(20px,env(safe-area-inset-bottom))] lg:hidden z-20">
-               <VirtualDPad isVisible={!gameOver} onDirectionChange={changeDirection} size={Math.min(160, window.innerWidth * 0.45)} currentDirection={snakeDirection} />
+              <VirtualDPad isVisible={!gameOver} onDirectionChange={changeDirection} size={Math.min(160, window.innerWidth * 0.45)} currentDirection={snakeDirection} />
             </div>
 
           </div>
         )}
 
-       {gameOver && (
+        {gameOver && (
           <GameOver
-            score={score} 
-            maxCombo={maxCombo} 
-            bestScore={bestScore} 
+            score={score}
+            maxCombo={maxCombo}
+            bestScore={bestScore}
             isNewRecord={score >= bestScore && score > 0}
-            onRestart={handleStart} 
+            onRestart={handleStart}
             onBackToMenu={() => { setIsPlaying(false); resetGame(); SoundManager.stopMusic(); }}
-            
-            onShare={() => { 
-              const modeName = gameMode === 'walls' ? '⚡ Time Blitz' : gameMode === 'chill' ? '🧘 Zen Flow' : '🏆 Classic';      
-              const text = `🐍 Just scored ${score} points in Snake Neon Arena!\n\nMode: ${modeName}\nSkin: ${activeSkinObj.name}\n\nCan you beat my high score? 👇`;          
+
+            onShare={() => {
+              const modeName = gameMode === 'walls' ? '⚡ Time Blitz' : gameMode === 'chill' ? '🧘 Zen Flow' : '🏆 Classic';
+              const text = `🐍 Just scored ${score} points in Snake Neon Arena!\n\nMode: ${modeName}\nSkin: ${activeSkinObj.name}\n\nCan you beat my high score? 👇`;
               const gameUrl = "https://snake-neon-arena.vercel.app";
               const shareText = `${text}\n\n${gameUrl}`;
               (async () => {
@@ -755,15 +758,15 @@ function App() {
                 setSharePayload({ text, url: gameUrl });
                 setShowShareModal(true);
               })();
-            }}            
+            }}
             applesCollected={applesCollected}
           />
         )}
 
         {showTutorial && <Tutorial onClose={() => setShowTutorial(false)} />}
         {showLeaderboard && (
-          <GlobalLeaderboard 
-            onClose={() => setShowLeaderboard(false)} 
+          <GlobalLeaderboard
+            onClose={() => setShowLeaderboard(false)}
             defaultTab={gameMode}
             currentCanonicalId={currentCanonicalId}
             farcasterUser={farcasterUser}
@@ -771,11 +774,11 @@ function App() {
         )}
         {showDailyCheckIn && (
           <DailyCheckIn
-            walletAddress={address} 
+            walletAddress={address}
             canonicalId={currentCanonicalId}
             onClose={() => setShowDailyCheckIn(false)}
             onRewardClaimed={(amount) => {
-              
+
               setUnlockNotification([`Daily Reward: +${amount} 🍎`]);
               setPlayerStats(prev => ({ ...prev, totalApples: (prev.totalApples || 0) + amount }));
             }}
@@ -831,7 +834,7 @@ function App() {
             </div>
           </div>
         )}
-        
+
       </div>
       <div className="hidden lg:block w-72 h-[80vh] p-6 glass rounded-r-2xl border-l-0 border-white/10"></div>
     </div>
