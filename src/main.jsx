@@ -24,22 +24,12 @@ import { Base } from "@thirdweb-dev/chains";
 // --- IMPORTY ONCHAINKIT ---
 import { OnchainKitProvider } from '@coinbase/onchainkit';
 
-// 🔥 VCONSOLE - DEBUGOWANIE 🔥
-import VConsole from 'vconsole';
-
-// Inicjalizacja vConsole (działa zawsze, nawet na produkcji)
-const vConsole = new VConsole();
-
 const APP_NAME = 'Snake Neo Arena';
 const APP_ORIGIN = globalThis?.location?.origin || 'https://snake-neon-arena.vercel.app';
 const APP_LOGO_URL = `${APP_ORIGIN}/logo.png`;
 const WALLET_CONNECT_PROJECT_ID = import.meta.env.VITE_WALLET_CONNECT_PROJECT_ID || 'YOUR_PROJECT_ID';
 
-import { Attribution } from 'ox/erc8021';
 
-const DATA_SUFFIX = Attribution.toDataSuffix({
-  codes: ['boik5nwq'],
-});
 
 const config = createConfig({
   chains: [base, optimism],

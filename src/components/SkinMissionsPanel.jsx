@@ -90,7 +90,7 @@ const SkinMissionsPanel = ({ unlockedSkins, currentSkinId, onSelectSkin, onClose
                         className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/95 backdrop-blur-md p-6 text-center"
                     >
                         <div className="w-20 h-20 bg-green-500/20 rounded-full flex items-center justify-center mb-4 border border-green-500 shadow-[0_0_30px_#22c55e]">
-                            <div className="text-4xl"></div>
+                            <div className="text-4xl">🎉</div>
                         </div>
                         <h2 className="text-2xl font-black text-white mb-2 tracking-wider">MINT SUCCESS!</h2>
                         <p className="text-gray-400 text-sm mb-6">Your transaction is on its way to the blockchain.</p>
