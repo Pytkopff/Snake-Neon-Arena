@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
-import { useAccount, useSendTransaction, useWaitForTransactionReceipt, useChainId, useSwitchChain, useWalletClient } from 'wagmi';
-import { encodeFunctionData, parseEther, concatHex } from 'viem';
-import { Attribution } from 'ox/erc8021';
+import { useAccount, useSendTransaction, useWaitForTransactionReceipt, useChainId, useSwitchChain } from 'wagmi';
+import { encodeFunctionData, parseEther } from 'viem';
 
 // --- CONFIGURATION ---
 const BASE_CHAIN_ID = 8453;
@@ -9,25 +8,8 @@ const BADGE_ADDRESS = "0x720579D73BD6f9b16A4749D9D401f31ed9a418D7";
 const NATIVE_TOKEN = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
 const MAX_UINT256 = 115792089237316195423570985008687907853269984665640564039457584007913129639935n;
 
-// CONSTANTS for ATTRIBUTION
-const DATA_SUFFIX = Attribution.toDataSuffix({ codes: ['boik5nwq'] }); // 26 bytes
-
-// ALIGNMENT MATH:
-// ABI Encoded data = 4 bytes (Selector) + N * 32 bytes (Args).
-// Total currently = 4 (mod 32).
-// We want Total + Padding + Suffix = 0 (mod 32).
-// 4 + P + 26 = 32.
-// 30 + P = 32.
-// P = 2 bytes.
-const PADDING = '0x0000'; // 2 bytes
-const ALIGNED_SUFFIX = concatHex([PADDING, DATA_SUFFIX]); // Total 28 bytes
-
-// Result:
-// InnerData = 4 + 32*N.
-// FinalData = InnerData + 28 = 32 + 32*N = 32*(N+1).
-// Since FinalData is a multiple of 32, the outer SmartWallet ABI encoder 
-// (which wraps this as `bytes`) will NOT add any trailing zero padding.
-// The Suffix will be the exact end of the payload.
+// NOTE: Global dataSuffix is configured in wagmi config (main.jsx).
+// With viem >= 2.45.0, this handles everything automatically.
 
 const BADGE_ABI = [
     {
@@ -87,7 +69,7 @@ export default function MintBadgeButton({
 
     React.useEffect(() => {
         if (isConfirmed && txHash) {
-            console.log("✅ Mint Success (Aligned)", txHash);
+            console.log("✅ Mint Success!", txHash);
             setSuccessHash(txHash);
             if (onSuccess) onSuccess(txHash);
         }
@@ -116,25 +98,18 @@ export default function MintBadgeButton({
             const price = parseEther(priceETH.toString());
             const allowlistProof = { proof: [], quantityLimitPerWallet: MAX_UINT256, pricePerToken: price, currency: NATIVE_TOKEN };
 
-            const cleanData = encodeFunctionData({
+            const data = encodeFunctionData({
                 abi: BADGE_ABI,
                 functionName: 'claim',
                 args: [address, BigInt(tokenId), 1n, NATIVE_TOKEN, price, allowlistProof, "0x"]
             });
 
-            // --- MATH ALIGNMENT FIX ---
-            // Suffix (26) + Padding (2) = 28 bytes.
-            // cleanData (4 + N*32) + 28 = 32 + N*32 = 32*(N+1).
-            // PERFECT 32-byte ALIGNMENT.
-
-            const fullData = concatHex([cleanData, ALIGNED_SUFFIX]);
-
-            console.log('[MintBadge] 📐 Sending perfectly aligned data (Modulo 32)');
-            console.log('[MintBadge] Suffix Block:', ALIGNED_SUFFIX);
+            // STANDARD SEND (Global config handles suffix)
+            console.log('[MintBadge] Sending standard transaction (Viem updated)...');
 
             sendTransaction({
                 to: BADGE_ADDRESS,
-                data: fullData,
+                data: data,
                 value: price,
             });
 
@@ -183,7 +158,7 @@ export default function MintBadgeButton({
             >
                 {typeof children === 'function'
                     ? children({ isWorking, isSending: isWorking, isWaiting: isWaiting, isConfirmed: !!successHash })
-                    : (children || (isWorking ? 'Minting...' : 'Mint Badge (Align Fix)'))
+                    : (children || (isWorking ? 'Minting...' : 'Mint Badge (Viem Update)'))
                 }
             </button>
             {errorMessage && (
