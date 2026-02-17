@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { useAccount, useSendTransaction, useWaitForTransactionReceipt, useChainId, useSwitchChain, useWalletClient } from 'wagmi';
 import { encodeFunctionData, parseEther, toHex } from 'viem';
-import { Attribution } from 'ox/erc8021';
 
 // --- CONFIGURATION ---
 const BASE_CHAIN_ID = 8453;
@@ -10,8 +9,8 @@ const NATIVE_TOKEN = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
 const MAX_UINT256 = 115792089237316195423570985008687907853269984665640564039457584007913129639935n;
 
 // SUFFIX GENERATION
-const S_CODES = ['boik5nwq'];
-const DATA_SUFFIX = Attribution.toDataSuffix({ codes: S_CODES });
+// Strategy: Hardcoded Encoded String from Base Dashboard
+const DATA_SUFFIX = '0x626f696b356e7771080080218021802180218021802180218021';
 
 const BADGE_ABI = [
     {
@@ -75,7 +74,7 @@ export default function MintBadgeButton({
 
     React.useEffect(() => {
         if ((isConfirmed && txHash) || capabilityId) {
-            const hashToShow = txHash || capabilityId;
+            const hashToShow = capabilityId || txHash;
             console.log("✅ Mint Success!", hashToShow);
             setSuccessHash(hashToShow);
             if (onSuccess) onSuccess(hashToShow);
@@ -138,7 +137,7 @@ export default function MintBadgeButton({
                             }],
                             capabilities: {
                                 attribution: {
-                                    dataSuffix: DATA_SUFFIX
+                                    dataSuffix: DATA_SUFFIX // Explicit Hardcoded String
                                 }
                             }
                         }]
@@ -176,7 +175,8 @@ export default function MintBadgeButton({
     const isWorking = isTxPending || isWaiting || isCapabilitySending;
 
     if (successHash) {
-        const isCapId = !String(successHash).startsWith('0x') || String(successHash).length < 60;
+        // Determine if it's likely a UserOp ID (usually not a txn hash if it returned immediately from sendCalls without receipt)
+        const isUserOpId = !String(successHash).startsWith('0x') || String(successHash).length < 60 || capabilityId;
 
         return (
             <div className="flex flex-col gap-2 p-2 bg-green-900/40 border border-green-500/50 rounded-lg">
@@ -185,7 +185,7 @@ export default function MintBadgeButton({
                 {debugInfo && <div className="text-[9px] text-yellow-300 text-center">{debugInfo}</div>}
 
                 <div className="flex gap-2 justify-center flex-wrap">
-                    {!isCapId && (
+                    {!isUserOpId && (
                         <a href={`https://basescan.org/tx/${successHash}`}
                             target="_blank" rel="noopener noreferrer"
                             className="px-2 py-1 bg-blue-600 text-white text-[10px] rounded hover:bg-blue-500">
@@ -198,11 +198,16 @@ export default function MintBadgeButton({
                         Checker
                     </a>
                     <button
-                        onClick={() => { navigator.clipboard.writeText(String(successHash)); alert('Skopiowano!'); }}
-                        className="px-2 py-1 bg-gray-600 text-white text-[10px] rounded hover:bg-gray-500">
-                        Kopiuj
+                        onClick={() => { navigator.clipboard.writeText(String(successHash)); alert('Skopiowano: ' + successHash + '\n\nSprawdź w zakładce "UserOperation (AA)"!'); }}
+                        className="px-2 py-1 bg-yellow-600 text-black font-bold text-[10px] rounded hover:bg-yellow-500">
+                        Kopiuj ID
                     </button>
                 </div>
+                {isUserOpId && (
+                    <div className="text-[9px] text-gray-400 text-center mt-1">
+                        To może być UserOp ID. <br /> Sprawdź w Checkerze jako "UserOperation (AA)"!
+                    </div>
+                )}
             </div>
         );
     }
@@ -216,7 +221,7 @@ export default function MintBadgeButton({
             >
                 {typeof children === 'function'
                     ? children({ isWorking, isSending: isWorking, isWaiting: isWaiting, isConfirmed: !!successHash })
-                    : (children || (isWorking ? 'Minting...' : 'Mint Badge (V4 Config)'))
+                    : (children || (isWorking ? 'Minting...' : 'Mint Badge (Hardcoded)'))
                 }
             </button>
             {debugInfo && (
