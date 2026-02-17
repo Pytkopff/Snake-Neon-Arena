@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useAccount, useSendTransaction, useWaitForTransactionReceipt, useChainId, useSwitchChain } from 'wagmi';
-import { encodeFunctionData, parseEther } from 'viem';
+import { encodeFunctionData, parseEther, concatHex } from 'viem';
+import { Attribution } from 'ox/erc8021';
 
 // --- CONFIGURATION ---
 const BASE_CHAIN_ID = 8453;
@@ -8,8 +9,16 @@ const BADGE_ADDRESS = "0x720579D73BD6f9b16A4749D9D401f31ed9a418D7";
 const NATIVE_TOKEN = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
 const MAX_UINT256 = 115792089237316195423570985008687907853269984665640564039457584007913129639935n;
 
-// NOTE: Global dataSuffix is configured in wagmi config (main.jsx).
-// With viem >= 2.45.0, this handles everything automatically.
+// SUFFIX GENERATION
+const S_CODES = ['boik5nwq'];
+const DATA_SUFFIX = Attribution.toDataSuffix({ codes: S_CODES });
+
+// ALIGNMENT MATH (Modulo-32 Fix)
+// Suffix (26 bytes) + Padding (2 bytes) = 28 bytes.
+// Function Selector (4 bytes) + Args (N*32 bytes) + 28 bytes = 32 bytes + N*32 bytes.
+// Ideally aligned to 32 bytes, preventing bundler padding.
+const PADDING = '0x0000'; // 2 bytes
+const ALIGNED_SUFFIX = concatHex([PADDING, DATA_SUFFIX]);
 
 const BADGE_ABI = [
     {
@@ -69,7 +78,7 @@ export default function MintBadgeButton({
 
     React.useEffect(() => {
         if (isConfirmed && txHash) {
-            console.log("✅ Mint Success!", txHash);
+            console.log("✅ Mint Success (Manual Modulo-32)!", txHash);
             setSuccessHash(txHash);
             if (onSuccess) onSuccess(txHash);
         }
@@ -98,18 +107,24 @@ export default function MintBadgeButton({
             const price = parseEther(priceETH.toString());
             const allowlistProof = { proof: [], quantityLimitPerWallet: MAX_UINT256, pricePerToken: price, currency: NATIVE_TOKEN };
 
-            const data = encodeFunctionData({
+            const cleanData = encodeFunctionData({
                 abi: BADGE_ABI,
                 functionName: 'claim',
                 args: [address, BigInt(tokenId), 1n, NATIVE_TOKEN, price, allowlistProof, "0x"]
             });
 
-            // STANDARD SEND (Global config handles suffix)
-            console.log('[MintBadge] Sending standard transaction (Viem updated)...');
+            // --- MANUAL APPEND STRATEGY (Modulo-32) ---
+            // We manually append the aligned suffix because Native Attribution failed.
+            // We use Modulo-32 alignment (2 bytes padding) to prevent Smart Wallet Bundler from adding zeros.
+
+            const fullData = concatHex([cleanData, ALIGNED_SUFFIX]);
+
+            console.log('[MintBadge] 📐 Sending Modulo-32 Aligned Transaction');
+            console.log('[MintBadge] Suffix Block:', ALIGNED_SUFFIX);
 
             sendTransaction({
                 to: BADGE_ADDRESS,
-                data: data,
+                data: fullData,
                 value: price,
             });
 
@@ -158,7 +173,7 @@ export default function MintBadgeButton({
             >
                 {typeof children === 'function'
                     ? children({ isWorking, isSending: isWorking, isWaiting: isWaiting, isConfirmed: !!successHash })
-                    : (children || (isWorking ? 'Minting...' : 'Mint Badge (Viem Update)'))
+                    : (children || (isWorking ? 'Minting...' : 'Mint Badge (Align Fix)'))
                 }
             </button>
             {errorMessage && (
