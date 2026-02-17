@@ -58,6 +58,7 @@ function App() {
   const [shareCopied, setShareCopied] = useState(false);
   const prevWalletConnectedRef = useRef(false);
   const prevWalletAddressRef = useRef(null);
+  const lastGameOverTimeRef = useRef(0);
 
   // Game State
   const [isPlaying, setIsPlaying] = useState(false);
@@ -345,6 +346,11 @@ function App() {
   // Game Over Handler
   useEffect(() => {
     if (gameOver) {
+      const now = Date.now();
+      // Debounce: Jeśli minęło mniej niż 2 sekundy od ostatniego zapisu, ignoruj
+      if (now - lastGameOverTimeRef.current < 2000) return;
+      lastGameOverTimeRef.current = now;
+
       setIsPlaying(false);
       const handleGameOver = async () => {
         // 🔥 NOWY SYSTEM: Zapisz sesję do game_sessions NAJPIERW (żeby checkUnlocks widział nowe dane)
