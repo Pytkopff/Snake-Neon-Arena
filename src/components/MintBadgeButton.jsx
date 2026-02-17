@@ -9,17 +9,25 @@ const BADGE_ADDRESS = "0x720579D73BD6f9b16A4749D9D401f31ed9a418D7";
 const NATIVE_TOKEN = "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE";
 const MAX_UINT256 = 115792089237316195423570985008687907853269984665640564039457584007913129639935n;
 
-// SUFFIX GENERATION
-// Standard Suffix: ~26 bytes
-const DATA_SUFFIX = Attribution.toDataSuffix({ codes: ['boik5nwq'] });
+// CONSTANTS for ATTRIBUTION
+const DATA_SUFFIX = Attribution.toDataSuffix({ codes: ['boik5nwq'] }); // 26 bytes
 
-// PADDING STRATEGY
-// We want the final data to be a multiple of 32 bytes so the bundler doesn't add trailing zeros.
-// Suffix is 26 bytes. We need 6 bytes of padding.
-// We align it by PREPENDING 6 bytes of zeros to the suffix.
-// Result: [00 00 00 00 00 00][SUFFIX (26)] = 32 bytes.
-const PADDING = '0x000000000000';
-const ALIGNED_SUFFIX = concatHex([PADDING, DATA_SUFFIX]);
+// ALIGNMENT MATH:
+// ABI Encoded data = 4 bytes (Selector) + N * 32 bytes (Args).
+// Total currently = 4 (mod 32).
+// We want Total + Padding + Suffix = 0 (mod 32).
+// 4 + P + 26 = 32.
+// 30 + P = 32.
+// P = 2 bytes.
+const PADDING = '0x0000'; // 2 bytes
+const ALIGNED_SUFFIX = concatHex([PADDING, DATA_SUFFIX]); // Total 28 bytes
+
+// Result:
+// InnerData = 4 + 32*N.
+// FinalData = InnerData + 28 = 32 + 32*N = 32*(N+1).
+// Since FinalData is a multiple of 32, the outer SmartWallet ABI encoder 
+// (which wraps this as `bytes`) will NOT add any trailing zero padding.
+// The Suffix will be the exact end of the payload.
 
 const BADGE_ABI = [
     {
@@ -58,14 +66,12 @@ export default function MintBadgeButton({
     disabled,
     children
 }) {
-    const { address, connector } = useAccount();
+    const { address } = useAccount();
     const chainId = useChainId();
     const { switchChainAsync } = useSwitchChain();
-    const { data: walletClient } = useWalletClient();
 
     const [successHash, setSuccessHash] = useState(null);
     const [errorMessage, setErrorMessage] = useState(null);
-    const [isCallsPending, setIsCallsPending] = useState(false);
 
     const {
         data: txHash,
@@ -81,7 +87,7 @@ export default function MintBadgeButton({
 
     React.useEffect(() => {
         if (isConfirmed && txHash) {
-            console.log("✅ Mint Success (Safe Manual)", txHash);
+            console.log("✅ Mint Success (Aligned)", txHash);
             setSuccessHash(txHash);
             if (onSuccess) onSuccess(txHash);
         }
@@ -90,7 +96,7 @@ export default function MintBadgeButton({
     React.useEffect(() => {
         if (txError) {
             console.error("Tx Error", txError);
-            setErrorMessage(txError.message || "Błąd transakcji");
+            setErrorMessage(txError.message || "Transakcja nieudana");
             if (onError) onError(txError);
         }
     }, [txError, onError]);
@@ -98,6 +104,7 @@ export default function MintBadgeButton({
     const handleMint = async (e) => {
         e?.stopPropagation();
         if (!address) return;
+
         setErrorMessage(null);
 
         try {
@@ -115,22 +122,15 @@ export default function MintBadgeButton({
                 args: [address, BigInt(tokenId), 1n, NATIVE_TOKEN, price, allowlistProof, "0x"]
             });
 
-            // --- LOGIC: MANUAL ALIGNED APPEND ---
-            // We manually append the 32-byte aligned suffix.
-            // EOA: Works fine.
-            // Smart Wallet: Should avoid trailing zeros from bundler padding.
+            // --- MATH ALIGNMENT FIX ---
+            // Suffix (26) + Padding (2) = 28 bytes.
+            // cleanData (4 + N*32) + 28 = 32 + N*32 = 32*(N+1).
+            // PERFECT 32-byte ALIGNMENT.
 
             const fullData = concatHex([cleanData, ALIGNED_SUFFIX]);
 
-            const isSmartWallet = connector?.id === 'coinbaseWalletSDK' || connector?.name === 'Coinbase Wallet';
-
-            // NOTE: We SKIP sendCalls for now because without version:4 it might be flaky,
-            // and with version:4 it crashes the app.
-            // We rely on standard sendTransaction with MANUAL DATA manipulation.
-            // This is the most "low level" we can get without breaking connectors.
-
-            console.log('[MintBadge] 🛠️ Sending via standard sendTransaction (Manual 32b Aligned)');
-            console.log('[MintBadge] Suffix Hex:', ALIGNED_SUFFIX);
+            console.log('[MintBadge] 📐 Sending perfectly aligned data (Modulo 32)');
+            console.log('[MintBadge] Suffix Block:', ALIGNED_SUFFIX);
 
             sendTransaction({
                 to: BADGE_ADDRESS,
@@ -141,37 +141,29 @@ export default function MintBadgeButton({
         } catch (err) {
             console.error("[MintBadge] Error:", err);
             setErrorMessage(err.message || "Błąd wykonania");
-            setIsCallsPending(false);
             if (onError) onError(err);
         }
     };
 
-    const isWorking = isCallsPending || isTxPending || isWaiting;
+    const isWorking = isTxPending || isWaiting;
 
     if (successHash) {
-        const displayHash = typeof successHash === 'string' ? successHash : 'Bundle Sent';
-        const isTxHash = typeof successHash === 'string' && successHash.startsWith('0x') && successHash.length === 66;
-
         return (
             <div className="flex flex-col gap-2 p-2 bg-green-900/40 border border-green-500/50 rounded-lg">
                 <div className="text-green-400 font-bold text-sm text-center">✅ MINT SUKCES!</div>
-                <div className="text-[10px] text-gray-400 text-center break-all">{displayHash.slice(0, 10)}...</div>
+                <div className="text-[10px] text-gray-400 text-center break-all">{successHash.slice(0, 10)}...</div>
 
                 <div className="flex gap-2 justify-center flex-wrap">
-                    {isTxHash && (
-                        <a href={`https://basescan.org/tx/${successHash}`}
-                            target="_blank" rel="noopener noreferrer"
-                            className="px-2 py-1 bg-blue-600 text-white text-[10px] rounded hover:bg-blue-500">
-                            Basescan
-                        </a>
-                    )}
-                    {isTxHash && (
-                        <a href={`https://builder-code-checker.vercel.app/?hash=${successHash}`}
-                            target="_blank" rel="noopener noreferrer"
-                            className="px-2 py-1 bg-purple-600 text-white text-[10px] rounded hover:bg-purple-500">
-                            Checker
-                        </a>
-                    )}
+                    <a href={`https://basescan.org/tx/${successHash}`}
+                        target="_blank" rel="noopener noreferrer"
+                        className="px-2 py-1 bg-blue-600 text-white text-[10px] rounded hover:bg-blue-500">
+                        Basescan
+                    </a>
+                    <a href={`https://builder-code-checker.vercel.app/?hash=${successHash}`}
+                        target="_blank" rel="noopener noreferrer"
+                        className="px-2 py-1 bg-purple-600 text-white text-[10px] rounded hover:bg-purple-500">
+                        Checker
+                    </a>
                     <button
                         onClick={() => { navigator.clipboard.writeText(String(successHash)); alert('Skopiowano!'); }}
                         className="px-2 py-1 bg-gray-600 text-white text-[10px] rounded hover:bg-gray-500">
@@ -191,7 +183,7 @@ export default function MintBadgeButton({
             >
                 {typeof children === 'function'
                     ? children({ isWorking, isSending: isWorking, isWaiting: isWaiting, isConfirmed: !!successHash })
-                    : (children || (isWorking ? 'Minting...' : 'Mint Badge (Fixed)'))
+                    : (children || (isWorking ? 'Minting...' : 'Mint Badge (Align Fix)'))
                 }
             </button>
             {errorMessage && (
