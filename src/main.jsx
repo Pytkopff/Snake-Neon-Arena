@@ -56,6 +56,8 @@ const config = createConfig({
     coinbaseWallet({
       appName: APP_NAME,
       appLogoUrl: APP_LOGO_URL,
+      version: '4', // Required for advanced EIP-5792 capabilities
+      preference: 'smartWalletOnly',
     }),
     walletConnect({ projectId: WALLET_CONNECT_PROJECT_ID }),
   ],

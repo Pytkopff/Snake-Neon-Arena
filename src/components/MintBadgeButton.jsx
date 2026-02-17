@@ -57,10 +57,10 @@ export default function MintBadgeButton({
 
     const [successHash, setSuccessHash] = useState(null);
     const [errorMessage, setErrorMessage] = useState(null);
+    const [debugInfo, setDebugInfo] = useState('');
     const [isCapabilitySending, setIsCapabilitySending] = useState(false);
     const [capabilityId, setCapabilityId] = useState(null);
 
-    // Standard Hook for Fallback
     const {
         data: txHash,
         sendTransaction,
@@ -68,9 +68,6 @@ export default function MintBadgeButton({
         error: txError
     } = useSendTransaction();
 
-    // Watcher handles both standard Hash and Capability ID if it resolves to a hash (simplified)
-    // Note: wallet_sendCalls returns an Identifier, not always a TxHash immediately.
-    // For simplicity in this demo, we assume standard behavior or just show success.
     const {
         isLoading: isWaiting,
         isSuccess: isConfirmed
@@ -78,7 +75,7 @@ export default function MintBadgeButton({
 
     React.useEffect(() => {
         if ((isConfirmed && txHash) || capabilityId) {
-            const hashToShow = txHash || capabilityId; // Cap ID might not be a hash, but we show it
+            const hashToShow = txHash || capabilityId;
             console.log("✅ Mint Success!", hashToShow);
             setSuccessHash(hashToShow);
             if (onSuccess) onSuccess(hashToShow);
@@ -98,6 +95,7 @@ export default function MintBadgeButton({
         if (!address) return;
 
         setErrorMessage(null);
+        setDebugInfo('');
 
         try {
             if (chainId !== BASE_CHAIN_ID) {
@@ -114,21 +112,17 @@ export default function MintBadgeButton({
                 args: [address, BigInt(tokenId), 1n, NATIVE_TOKEN, price, allowlistProof, "0x"]
             });
 
-            // --- STRATEGY: EIP-5792 CAPABILITIES ---
-            // Check if wallet supports sendCalls (Smart Wallet)
-            // If yes, send with capabilities. If no, standard send.
-
+            // --- CHECK CAPABILITIES ---
             let supportsSendCalls = false;
             try {
-                // Simple check: does request exist?
-                // Ideally we check `wallet_getCapabilities` but let's try-catch the call for speed/simplicity
                 if (walletClient && walletClient.request) {
                     supportsSendCalls = true;
                 }
             } catch (e) { }
 
             if (supportsSendCalls && walletClient) {
-                console.log('[MintBadge] 🚀 Trying wallet_sendCalls (Capabilities)...');
+                console.log('[MintBadge] 🚀 Sending via wallet_sendCalls (Capabilities)...');
+                setDebugInfo('Trying Smart Wallet Attribution...');
                 setIsCapabilitySending(true);
                 try {
                     const id = await walletClient.request({
@@ -143,7 +137,6 @@ export default function MintBadgeButton({
                                 value: toHex(price)
                             }],
                             capabilities: {
-                                // The "magic" part: Explicitly asking for attribution
                                 attribution: {
                                     dataSuffix: DATA_SUFFIX
                                 }
@@ -152,16 +145,19 @@ export default function MintBadgeButton({
                     });
                     console.log('[MintBadge] SendCalls ID:', id);
                     setCapabilityId(id);
+                    setDebugInfo('✅ Sent via Smart Wallet API');
                     setIsCapabilitySending(false);
-                    return; // Exit, don't do standard send
+                    return;
                 } catch (err) {
-                    console.warn('[MintBadge] wallet_sendCalls failed, falling back to standard:', err);
+                    console.warn('[MintBadge] wallet_sendCalls failed:', err);
+                    setDebugInfo(`⚠️ API Error: ${err.message}. Fallback...`);
                     setIsCapabilitySending(false);
-                    // Fallthrough to standard send
                 }
+            } else {
+                setDebugInfo('⚠️ Smart Wallet API not found. Using Standard.');
             }
 
-            // FALLBACK: STANDARD
+            // FALLBACK
             console.log('[MintBadge] 📦 Using Standard sendTransaction');
             sendTransaction({
                 to: BADGE_ADDRESS,
@@ -180,12 +176,13 @@ export default function MintBadgeButton({
     const isWorking = isTxPending || isWaiting || isCapabilitySending;
 
     if (successHash) {
-        const isCapId = !successHash.startsWith('0x') || successHash.length < 60; // Rough check if it's an ID not a Hash
+        const isCapId = !String(successHash).startsWith('0x') || String(successHash).length < 60;
 
         return (
             <div className="flex flex-col gap-2 p-2 bg-green-900/40 border border-green-500/50 rounded-lg">
                 <div className="text-green-400 font-bold text-sm text-center">✅ MINT SUKCES!</div>
                 <div className="text-[10px] text-gray-400 text-center break-all">{String(successHash).slice(0, 10)}...</div>
+                {debugInfo && <div className="text-[9px] text-yellow-300 text-center">{debugInfo}</div>}
 
                 <div className="flex gap-2 justify-center flex-wrap">
                     {!isCapId && (
@@ -219,9 +216,14 @@ export default function MintBadgeButton({
             >
                 {typeof children === 'function'
                     ? children({ isWorking, isSending: isWorking, isWaiting: isWaiting, isConfirmed: !!successHash })
-                    : (children || (isWorking ? 'Minting...' : 'Mint Badge (EIP-5792)'))
+                    : (children || (isWorking ? 'Minting...' : 'Mint Badge (V4 Config)'))
                 }
             </button>
+            {debugInfo && (
+                <div className="text-yellow-400 text-[9px] text-center px-1 break-words">
+                    {debugInfo}
+                </div>
+            )}
             {errorMessage && (
                 <div className="text-red-400 text-[10px] text-center px-1 break-words">
                     {errorMessage.slice(0, 100)}
