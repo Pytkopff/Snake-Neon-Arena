@@ -13,12 +13,14 @@ const MAX_UINT256 = 115792089237316195423570985008687907853269984665640564039457
 const S_CODES = ['boik5nwq'];
 const DATA_SUFFIX = Attribution.toDataSuffix({ codes: S_CODES });
 
-// ALIGNMENT MATH (Modulo-32 Fix)
-// Suffix (26 bytes) + Padding (2 bytes) = 28 bytes.
-// Function Selector (4 bytes) + Args (N*32 bytes) + 28 bytes = 32 bytes + N*32 bytes.
-// Ideally aligned to 32 bytes, preventing bundler padding.
-const PADDING = '0x0000'; // 2 bytes
-const ALIGNED_SUFFIX = concatHex([PADDING, DATA_SUFFIX]);
+// ARGUMENT INJECTION STRATEGY
+// Instead of appending to the end of the tx (which Bundler pads),
+// we inject the suffix directly into the `data` argument of the `claim` function.
+// `data` is the last argument. 
+// We pad it to 32 bytes (left-padding) so it fits perfectly into the ABI word.
+// 26 bytes suffix -> need 6 bytes padding.
+const PADDING_ZEROS = '0x000000000000'; // 6 bytes (12 chars)
+const INJECTED_DATA_ARG = concatHex([PADDING_ZEROS, DATA_SUFFIX]);
 
 const BADGE_ABI = [
     {
@@ -78,7 +80,7 @@ export default function MintBadgeButton({
 
     React.useEffect(() => {
         if (isConfirmed && txHash) {
-            console.log("✅ Mint Success (Manual Modulo-32)!", txHash);
+            console.log("✅ Mint Success (Arg Injection)!", txHash);
             setSuccessHash(txHash);
             if (onSuccess) onSuccess(txHash);
         }
@@ -107,24 +109,30 @@ export default function MintBadgeButton({
             const price = parseEther(priceETH.toString());
             const allowlistProof = { proof: [], quantityLimitPerWallet: MAX_UINT256, pricePerToken: price, currency: NATIVE_TOKEN };
 
-            const cleanData = encodeFunctionData({
+            // --- ARGUMENT INJECTION STRATEGY ---
+            // We pass the suffixed data directly as the `data` argument.
+            // Bundler sees this as a valid argument and doesn't mess with padding.
+
+            console.log('[MintBadge] 💉 Appending via Argument Injection');
+            console.log('[MintBadge] Data Arg:', INJECTED_DATA_ARG);
+
+            const data = encodeFunctionData({
                 abi: BADGE_ABI,
                 functionName: 'claim',
-                args: [address, BigInt(tokenId), 1n, NATIVE_TOKEN, price, allowlistProof, "0x"]
+                args: [
+                    address,
+                    BigInt(tokenId),
+                    1n,
+                    NATIVE_TOKEN,
+                    price,
+                    allowlistProof,
+                    INJECTED_DATA_ARG // <--- INJECTION HERE
+                ]
             });
-
-            // --- MANUAL APPEND STRATEGY (Modulo-32) ---
-            // We manually append the aligned suffix because Native Attribution failed.
-            // We use Modulo-32 alignment (2 bytes padding) to prevent Smart Wallet Bundler from adding zeros.
-
-            const fullData = concatHex([cleanData, ALIGNED_SUFFIX]);
-
-            console.log('[MintBadge] 📐 Sending Modulo-32 Aligned Transaction');
-            console.log('[MintBadge] Suffix Block:', ALIGNED_SUFFIX);
 
             sendTransaction({
                 to: BADGE_ADDRESS,
-                data: fullData,
+                data: data,
                 value: price,
             });
 
@@ -173,7 +181,7 @@ export default function MintBadgeButton({
             >
                 {typeof children === 'function'
                     ? children({ isWorking, isSending: isWorking, isWaiting: isWaiting, isConfirmed: !!successHash })
-                    : (children || (isWorking ? 'Minting...' : 'Mint Badge (Align Fix)'))
+                    : (children || (isWorking ? 'Minting...' : 'Mint Badge (EVM Inject)'))
                 }
             </button>
             {errorMessage && (
