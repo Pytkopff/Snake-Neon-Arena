@@ -59,7 +59,6 @@ const config = createConfig({
     }),
     walletConnect({ projectId: WALLET_CONNECT_PROJECT_ID }),
   ],
-  dataSuffix: DATA_SUFFIX, // Global ERC-8021 Suffix
 });
 
 const queryClient = new QueryClient();
