@@ -59,6 +59,7 @@ function App() {
   const prevWalletConnectedRef = useRef(false);
   const prevWalletAddressRef = useRef(null);
   const lastGameOverTimeRef = useRef(0);
+  const gameOverProcessedRef = useRef(false);
 
   // Game State
   const [isPlaying, setIsPlaying] = useState(false);
@@ -345,11 +346,9 @@ function App() {
 
   // Game Over Handler
   useEffect(() => {
-    if (gameOver) {
-      const now = Date.now();
-      // Debounce: Jeśli minęło mniej niż 2 sekundy od ostatniego zapisu, ignoruj
-      if (now - lastGameOverTimeRef.current < 2000) return;
-      lastGameOverTimeRef.current = now;
+    if (gameOver && !gameOverProcessedRef.current) {
+      // 🔒 Flaga ustawiana synchronicznie PRZED async — blokuje duplikaty
+      gameOverProcessedRef.current = true;
 
       setIsPlaying(false);
       const handleGameOver = async () => {
@@ -397,6 +396,8 @@ function App() {
   // 🔥 SEKCJA 2: Zmodyfikowana funkcja START
   // ============================================
   const handleStart = () => {
+    // 🔓 Reset flagi game over dla nowej gry
+    gameOverProcessedRef.current = false;
     // ✅ KROK 1: Wywołujemy to PIERWSZE, synchronicznie w handlerze kliknięcia
     if (gameMode === 'chill') {
       SoundManager.startMusicOnUserGesture();
@@ -696,7 +697,7 @@ function App() {
                   <div className="text-center p-6 glass rounded-xl border border-white/20 shadow-xl min-w-[200px]">
                     <h2 className="text-3xl font-bold mb-6 text-neon-blue tracking-widest">PAUSED</h2>
                     <button onClick={togglePause} className="btn-primary w-full py-3 mb-3">RESUME</button>
-                    <button onClick={() => { setIsPlaying(false); setIsPaused(false); resetGame(); SoundManager.stopMusic(); }} className="btn-secondary w-full py-3">QUIT</button>
+                    <button onClick={() => { setIsPlaying(false); setIsPaused(false); resetGame(); gameOverProcessedRef.current = false; SoundManager.stopMusic(); }} className="btn-secondary w-full py-3">QUIT</button>
                   </div>
                 </div>
               )}
@@ -716,7 +717,7 @@ function App() {
             bestScore={bestScore}
             isNewRecord={score >= bestScore && score > 0}
             onRestart={handleStart}
-            onBackToMenu={() => { setIsPlaying(false); resetGame(); SoundManager.stopMusic(); }}
+            onBackToMenu={() => { setIsPlaying(false); resetGame(); gameOverProcessedRef.current = false; SoundManager.stopMusic(); }}
 
             onShare={() => {
               const modeName = gameMode === 'walls' ? '⚡ Time Blitz' : gameMode === 'chill' ? '🧘 Zen Flow' : '🏆 Classic';
